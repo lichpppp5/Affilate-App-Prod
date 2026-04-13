@@ -118,5 +118,23 @@ wsl --shutdown
 ### 4.3 Port bị chiếm (3000/4000/5432/6379/9000/9001)
 - Tắt app đang dùng port hoặc đổi port trong `.env`/compose
 
+### 4.4 PowerShell chặn chạy script (`execution policy`)
+Nếu gặp lỗi kiểu *running scripts is disabled*:
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force
+.\scripts\install-windows-docker.ps1
+```
+
+Luôn dùng **PowerShell Run as Administrator** như mục 1.
+
+### 4.5 Script cài đặt WSL từng lỗi (đã sửa trong repo)
+Phiên bản cũ gặp hai vấn đề kỹ thuật:
+
+1. **Chuỗi bash nằm trong `"..."` của PowerShell** — PowerShell hiểu nhầm `$1`, `${key}`… là biến của nó, làm hỏng hàm `set_kv` trong bash.
+2. **Gọi `cmd /c` với script nhiều dòng** — dễ vỡ dấu ngoặc / xuống dòng khi truyền vào `wsl bash -lc`.
+
+Bản hiện tại đưa script bootstrap vào WSL qua **base64 + stdin** (tránh lỗi PowerShell “ăn” ký tự `$` của bash và tránh vỡ dấu ngoặc khi script nhiều dòng). Nếu vẫn lỗi, mở **Ubuntu (WSL)** lần đầu để tạo user UNIX, rồi chạy lại script.
+
 ---
 

@@ -21,9 +21,36 @@ function Has-Cmd($name) {
   $null -ne (Get-Command $name -ErrorAction SilentlyContinue)
 }
 
-function Run($cmd) {
+function Run-CmdLine([string]$cmd) {
   Write-Host ">> $cmd"
   cmd.exe /c $cmd | Write-Host
+}
+
+function Escape-SingleQuoteForBash([string]$Value) {
+  if ($null -eq $Value) { return "" }
+  return $Value.Replace("'", "'\''")
+}
+
+function Test-WslDistroReady([string]$Name) {
+  & wsl.exe -d $Name -- bash -lc "true" *> $null
+  return ($LASTEXITCODE -eq 0)
+}
+
+function Invoke-WslBootstrapScript {
+  param(
+    [string]$DistroName,
+    [string]$ScriptContent
+  )
+
+  $unixContent = ($ScriptContent -replace "`r`n", "`n") + "`n"
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($unixContent)
+  $b64 = [Convert]::ToBase64String($bytes)
+
+  Write-Host ">> wsl -d $DistroName -- bash (bootstrap via base64)"
+  & wsl.exe -d $DistroName -- bash -lc "set -euo pipefail; echo '$b64' | base64 -d | bash"
+  if ($LASTEXITCODE -ne 0) {
+    throw "WSL bootstrap script failed (exit $LASTEXITCODE). See messages above."
+  }
 }
 
 Assert-Admin
@@ -39,72 +66,94 @@ if (-not (Has-Cmd "wsl.exe")) {
 }
 
 try {
-  Run "wsl --status"
+  Run-CmdLine "wsl --status"
 } catch {
   # ignore
 }
 
-# Ensure WSL optional features (safe if already enabled)
-Run "dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart"
-Run "dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart"
+Run-CmdLine "dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart"
+Run-CmdLine "dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart"
+Run-CmdLine "wsl --set-default-version 2"
 
-Run "wsl --set-default-version 2"
-
-$existing = (wsl -l -q 2>$null) -join "`n"
-if ($existing -notmatch "^(Ubuntu|Ubuntu-24\.04|Ubuntu-22\.04)$") {
-  Write-Host "Installing Ubuntu via WSL (may prompt / take time)..."
+if (-not (Test-WslDistroReady $Distro)) {
+  Write-Host "WSL distro '$Distro' not ready yet — installing / enabling (may require reboot)..."
   try {
-    Run "wsl --install -d Ubuntu"
+    Run-CmdLine "wsl --install -d $Distro"
   } catch {
-    Write-Host "WSL distro install may already be in progress or require reboot."
+    Write-Host "Note: wsl --install may require a reboot. After reboot, run this script again."
+  }
+  if (-not (Test-WslDistroReady $Distro)) {
+    throw @"
+Distro '$Distro' is still not usable. Typical fixes:
+  1) Open 'Ubuntu' from the Start menu once and finish creating the UNIX user.
+  2) Run: wsl --update  then  wsl --shutdown  then re-run this script.
+  3) Reboot if Windows asked you to after enabling WSL.
+  Check: wsl -l -v
+"@
   }
 } else {
-  Write-Host "WSL Ubuntu already present."
+  Write-Host "WSL distro '$Distro' is ready."
 }
 
 Write-Host
 Write-Host "Step 2/6: Check Docker Desktop"
 if (-not (Has-Cmd "docker")) {
-  Write-Warning "Docker CLI not found. Please install Docker Desktop (Linux containers) then re-run this script."
+  Write-Warning "Docker CLI not found. Install Docker Desktop (Linux containers) then re-run."
   Write-Warning "Download: https://www.docker.com/products/docker-desktop/"
   throw "Missing Docker Desktop."
 }
 
-try {
-  docker version | Out-Null
-} catch {
+docker version *> $null
+if ($LASTEXITCODE -ne 0) {
   throw "Docker is installed but not running. Start Docker Desktop then re-run."
 }
 
 Write-Host
 Write-Host "Step 3/6: Bootstrap repo inside WSL"
 
-$wslSetup = @"
+$repoEsc = Escape-SingleQuoteForBash $RepoUrl
+$dirEsc = Escape-SingleQuoteForBash $WslRepoDir
+$apiEsc = Escape-SingleQuoteForBash $ApiBaseUrl
+$webEsc = Escape-SingleQuoteForBash $WebBaseUrl
+$nextEsc = Escape-SingleQuoteForBash $NextPublicApiBaseUrl
+
+# Single-quoted bash assignments — values were escaped for embedding in '...'
+$bashTpl = @'
 set -euo pipefail
+
+REPO_URL='__REPO_URL__'
+WSL_DIR='__WSL_DIR__'
+API_BASE_URL='__API_BASE_URL__'
+WEB_BASE_URL='__WEB_BASE_URL__'
+NEXT_PUBLIC_API_BASE_URL='__NEXT_PUBLIC_API_BASE_URL__'
 
 echo '[wsl] installing base deps'
 sudo apt-get update -y
 sudo apt-get install -y git curl ca-certificates
 
 echo '[wsl] installing nvm + Node 20'
-if ! command -v nvm >/dev/null 2>&1; then
+if [ ! -d "$HOME/.nvm" ]; then
   curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 fi
-source ~/.bashrc
+export NVM_DIR="$HOME/.nvm"
+# shellcheck source=/dev/null
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+
 nvm install 20
 nvm use 20
 
-mkdir -p $WslRepoDir
-cd $WslRepoDir
+mkdir -p "$WSL_DIR"
+cd "$WSL_DIR"
 
 if [ -d .git ]; then
   echo '[wsl] repo exists, pulling'
   git pull
 else
   echo '[wsl] cloning repo'
-  rm -rf "$WslRepoDir"
-  git clone "$RepoUrl" "$WslRepoDir"
-  cd "$WslRepoDir"
+  rm -rf "$WSL_DIR"
+  mkdir -p "$(dirname "$WSL_DIR")"
+  git clone "$REPO_URL" "$WSL_DIR"
+  cd "$WSL_DIR"
 fi
 
 echo '[wsl] configuring .env'
@@ -113,18 +162,18 @@ if [ ! -f .env ]; then
 fi
 
 set_kv() {
-  key="$1"
-  value="$2"
-  if grep -qE "^${key}=" .env; then
-    sed -i "s|^${key}=.*|${key}=${value}|g" .env
+  _key="$1"
+  _val="$2"
+  if grep -qE "^${_key}=" .env; then
+    sed -i "s|^${_key}=.*|${_key}=${_val}|g" .env
   else
-    echo "${key}=${value}" >> .env
+    echo "${_key}=${_val}" >> .env
   fi
 }
 
-set_kv API_BASE_URL "$ApiBaseUrl"
-set_kv WEB_BASE_URL "$WebBaseUrl"
-set_kv NEXT_PUBLIC_API_BASE_URL "$NextPublicApiBaseUrl"
+set_kv API_BASE_URL "$API_BASE_URL"
+set_kv WEB_BASE_URL "$WEB_BASE_URL"
+set_kv NEXT_PUBLIC_API_BASE_URL "$NEXT_PUBLIC_API_BASE_URL"
 
 echo '[wsl] installing deps'
 npm install
@@ -136,9 +185,16 @@ echo '[wsl] reset demo db'
 npm run db:reset-demo
 
 echo '[wsl] done bootstrap'
-"@
+'@
 
-Run "wsl -d $Distro -- bash -lc `"$wslSetup`""
+$bashScript = $bashTpl `
+  -replace '__REPO_URL__', $repoEsc `
+  -replace '__WSL_DIR__', $dirEsc `
+  -replace '__API_BASE_URL__', $apiEsc `
+  -replace '__WEB_BASE_URL__', $webEsc `
+  -replace '__NEXT_PUBLIC_API_BASE_URL__', $nextEsc
+
+Invoke-WslBootstrapScript -DistroName $Distro -ScriptContent $bashScript
 
 Write-Host
 Write-Host "Step 4/6: Create auto-start Scheduled Task"
@@ -167,6 +223,5 @@ Write-Host "Web: $WebBaseUrl"
 Write-Host "API: $ApiBaseUrl"
 Write-Host "Task: $taskName (runs at logon)"
 Write-Host
-Write-Host "Logs (WSL):"
+Write-Host "Manual run (WSL):"
 Write-Host "  wsl -d $Distro -- bash -lc `"cd $WslRepoDir && npm run dev:all`""
-
