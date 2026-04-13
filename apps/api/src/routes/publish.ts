@@ -22,6 +22,7 @@ interface PublishRow {
   hashtags: string[];
   disclosure_text: string;
   affiliate_link: string;
+  external_id: string;
   scheduled_at: string | null;
   status: string;
 }
@@ -58,6 +59,7 @@ export async function listPublishJobs(session: AuthSession) {
         hashtags,
         disclosure_text,
         affiliate_link,
+        external_id,
         scheduled_at::text,
         status
       from publish_jobs
@@ -92,6 +94,7 @@ export async function getPublishJob(session: AuthSession, id: string) {
         hashtags,
         disclosure_text,
         affiliate_link,
+        external_id,
         scheduled_at::text,
         status
       from publish_jobs
@@ -148,10 +151,11 @@ export async function createPublishJob(
         hashtags,
         disclosure_text,
         affiliate_link,
+        external_id,
         scheduled_at,
         status
       )
-      values ($1, $2, $3, $4, $5, $6, $7, $8::text[], $9, $10, $11, $12)
+      values ($1, $2, $3, $4, $5, $6, $7, $8::text[], $9, $10, $11, $12, $13)
       returning
         id,
         tenant_id,
@@ -163,6 +167,7 @@ export async function createPublishJob(
         hashtags,
         disclosure_text,
         affiliate_link,
+        external_id,
         scheduled_at::text,
         status
     `,
@@ -177,6 +182,7 @@ export async function createPublishJob(
       body.hashtags ?? [],
       body.disclosureText ?? "",
       body.affiliateLink ?? "",
+      "",
       body.scheduledAt ?? null,
       body.status ?? "queued"
     ]
@@ -287,6 +293,7 @@ export async function updatePublishJob(
         hashtags,
         disclosure_text,
         affiliate_link,
+        external_id,
         scheduled_at::text,
         status
     `,
@@ -504,6 +511,7 @@ function mapPublishJob(row: PublishRow) {
     hashtags: row.hashtags ?? [],
     disclosureText: row.disclosure_text,
     affiliateLink: row.affiliate_link,
+    externalId: row.external_id || undefined,
     scheduledAt: row.scheduled_at ?? undefined,
     status: row.status
   };

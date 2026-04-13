@@ -108,6 +108,7 @@ create table if not exists publish_jobs (
   hashtags text[] not null default '{}',
   disclosure_text text not null default '',
   affiliate_link text not null default '',
+  external_id text not null default '',
   scheduled_at timestamptz,
   status text not null,
   created_at timestamptz not null default now(),
@@ -156,6 +157,22 @@ create table if not exists publish_webhook_events (
   created_at timestamptz not null default now()
 );
 
+create table if not exists provider_webhook_events (
+  id text primary key,
+  provider text not null,
+  provider_event_id text not null,
+  tenant_id text not null references tenants(id) on delete cascade,
+  publish_job_id text not null references publish_jobs(id) on delete cascade,
+  status text not null default '',
+  external_id text not null default '',
+  payload text not null default '',
+  received_at timestamptz not null default now(),
+  unique (provider, provider_event_id)
+);
+
+alter table publish_jobs
+  add column if not exists external_id text not null default '';
+
 create index if not exists idx_memberships_user_id on memberships(user_id);
 create index if not exists idx_products_tenant_id on products(tenant_id);
 create index if not exists idx_assets_tenant_id on assets(tenant_id);
@@ -164,9 +181,11 @@ create index if not exists idx_projects_tenant_id on video_projects(tenant_id);
 create index if not exists idx_render_jobs_tenant_id on render_jobs(tenant_id);
 create index if not exists idx_approvals_tenant_id on approvals(tenant_id);
 create index if not exists idx_publish_jobs_tenant_id on publish_jobs(tenant_id);
+create index if not exists idx_publish_jobs_external on publish_jobs(tenant_id, external_id);
 create index if not exists idx_channel_accounts_tenant_id on channel_accounts(tenant_id);
 create index if not exists idx_publish_attempts_tenant_id on publish_attempts(tenant_id);
 create index if not exists idx_publish_webhooks_tenant_id on publish_webhook_events(tenant_id);
+create index if not exists idx_provider_webhooks_tenant_received on provider_webhook_events(tenant_id, received_at desc);
 
 create table if not exists audit_logs (
   id text primary key,

@@ -469,10 +469,11 @@ async function processPublishJob(job: {
       `
         update publish_jobs
         set status = $2,
+            external_id = $3,
             updated_at = now()
         where id = $1
       `,
-      [job.id, nextStatus]
+      [job.id, nextStatus, providerResponse.external_id ?? ""]
     );
 
     await completePublishAttempt(attemptId, "success", responsePayload, "");

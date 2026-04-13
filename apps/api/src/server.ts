@@ -59,6 +59,7 @@ import {
   listPublishWebhookEvents,
   simulatePublishWebhook
 } from "./routes/publish-events";
+import { ingestProviderWebhook } from "./routes/provider-webhooks";
 import {
   buildMockAuthorizeRedirect,
   mockPublishDispatch,
@@ -202,6 +203,16 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
     const providerPublish = matchProviderMockPublish(pathname);
     if (method === "POST" && providerPublish) {
       const result = await mockPublishDispatch(providerPublish.provider, request);
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    const providerWebhook = matchProviderWebhook(pathname);
+    if (method === "POST" && providerWebhook) {
+      const result = await ingestProviderWebhook({
+        provider: providerWebhook.provider,
+        request
+      });
       sendJson(response, result.statusCode, result.payload);
       return;
     }
@@ -631,6 +642,13 @@ function matchProviderMockPublish(pathname: string) {
   const match = pathname.match(
     /^\/provider-mocks\/(tiktok|shopee|facebook)\/publish$/
   );
+  return match
+    ? { provider: match[1] as "tiktok" | "shopee" | "facebook" }
+    : null;
+}
+
+function matchProviderWebhook(pathname: string) {
+  const match = pathname.match(/^\/provider-webhooks\/(tiktok|shopee|facebook)$/);
   return match
     ? { provider: match[1] as "tiktok" | "shopee" | "facebook" }
     : null;

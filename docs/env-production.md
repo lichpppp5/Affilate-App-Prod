@@ -16,6 +16,7 @@ Hướng dẫn **chỗ cần điền** và **service nào đọc** biến. Đặ
 | `JOB_QUEUE_BRPOP_SEC` | Timeout `BRPOP` (giây) | Worker | Mặc định `3`, tối đa `30`. |
 | `METRICS_TOKEN` | Nếu đặt, `GET /metrics?token=...` | API | Prometheus scrape trong mạng riêng; để trống thì `/metrics` mở (chỉ dùng dev). |
 | `ALERT_WEBHOOK_URL` | URL nhận POST JSON khi worker tạo notification escalation (job fail) | Worker | Tuỳ chọn (Slack incoming, n8n, v.v.). |
+| `PROVIDER_WEBHOOK_SECRET` | Ký/verify webhook từ BFF/provider | API, BFF | Nếu đặt, BFF phải gửi header `x-appaffilate-signature`. |
 | `PORT` | Cổng HTTP API | API | Ví dụ `4000` hoặc cổng reverse proxy nội bộ. |
 | `API_BASE_URL` | URL công khai (hoặc nội bộ) của API | API (OAuth redirect, link), Worker (fallback mock URL) | Ví dụ `https://api.example.com`. Phải khớp URL browser/server gọi tới. |
 | `WEB_BASE_URL` | URL web admin | API (OAuth callback redirect) | Ví dụ `https://app.example.com`. Callback OAuth redirect về đây. |
@@ -43,6 +44,10 @@ Hướng dẫn **chỗ cần điền** và **service nào đọc** biến. Đặ
 | `FACEBOOK_PUBLISH_URL` | Publish (BFF map sang Graph hoặc tool nội bộ) | Worker | Body mở rộng: `caption`, `hashtags`, `affiliateLink` — xem [provider-bff-contract.md](./provider-bff-contract.md). |
 | `FACEBOOK_CLIENT_ID` | App id | API, Worker | |
 | `FACEBOOK_CLIENT_SECRET` | App secret | API, Worker | |
+| `API_WEBHOOK_URL` | Base URL API để BFF callback | BFF | Ví dụ `https://api.example.com`. |
+| `FACEBOOK_GRAPH_BASE_URL` | Base Graph API | BFF | Mặc định `https://graph.facebook.com`. |
+| `FACEBOOK_GRAPH_VERSION` | Version Graph | BFF | Mặc định `v20.0`. |
+| `FACEBOOK_PAGE_ID` | Page ID để đăng bài | BFF | BFF post `/{pageId}/feed`. |
 
 ## TikTok / Shopee / Facebook “thật”: kỳ vọng kỹ thuật hiện tại
 

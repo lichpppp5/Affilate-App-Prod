@@ -101,6 +101,7 @@ export interface PublishJobRecord {
   hashtags: string[];
   disclosureText: string;
   affiliateLink: string;
+  externalId?: string;
   scheduledAt?: string;
   status: string;
 }
