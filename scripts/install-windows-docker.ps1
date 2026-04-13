@@ -32,13 +32,35 @@ function Escape-SingleQuoteForBash([string]$Value) {
 }
 
 function Test-WslDistroReady([string]$Name) {
-  & wsl.exe -d $Name -- bash -lc "true" *> $null
+  # Native wsl stderr becomes ErrorRecord; with $ErrorActionPreference Stop the script would terminate.
+  $prevEa = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "SilentlyContinue"
+    $null = & wsl.exe -d $Name -- bash -lc "true" 2>&1
+  } finally {
+    $ErrorActionPreference = $prevEa
+  }
   return ($LASTEXITCODE -eq 0)
 }
 
 function Test-WslSubsystemInstalled {
   # wsl.exe exists on many builds even before the optional feature is fully active
-  $text = (& wsl.exe -l -v 2>&1 | ForEach-Object { $_.ToString() }) -join "`n"
+  $prevEa = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "SilentlyContinue"
+    $raw = & wsl.exe -l -v 2>&1
+  } finally {
+    $ErrorActionPreference = $prevEa
+  }
+
+  $text = ($raw | ForEach-Object {
+    if ($_ -is [System.Management.Automation.ErrorRecord]) {
+      $_.Exception.Message
+    } else {
+      $_.ToString()
+    }
+  }) -join "`n"
+
   if ($text -match '(?i)windows subsystem for linux is not installed') {
     return $false
   }
@@ -48,7 +70,6 @@ function Test-WslSubsystemInstalled {
   if ($text -match '(?i)(VERSION|Ubuntu|docker-desktop)') {
     return $true
   }
-  # Unknown output but exit 0 from wsl usually means WSL is on
   return ($LASTEXITCODE -eq 0)
 }
 
