@@ -36,6 +36,22 @@ function Test-WslDistroReady([string]$Name) {
   return ($LASTEXITCODE -eq 0)
 }
 
+function Test-WslSubsystemInstalled {
+  # wsl.exe exists on many builds even before the optional feature is fully active
+  $text = (& wsl.exe -l -v 2>&1 | ForEach-Object { $_.ToString() }) -join "`n"
+  if ($text -match '(?i)windows subsystem for linux is not installed') {
+    return $false
+  }
+  if ($text -match '(?i)no installed distributions') {
+    return $true
+  }
+  if ($text -match '(?i)(VERSION|Ubuntu|docker-desktop)') {
+    return $true
+  }
+  # Unknown output but exit 0 from wsl usually means WSL is on
+  return ($LASTEXITCODE -eq 0)
+}
+
 function Invoke-WslBootstrapScript {
   param(
     [string]$DistroName,
@@ -71,12 +87,37 @@ try {
   # ignore
 }
 
+Write-Host "Enabling WSL optional components (DISM)..."
 Run-CmdLine "dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart"
 Run-CmdLine "dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart"
+
+if (-not (Test-WslSubsystemInstalled)) {
+  Write-Host ""
+  Write-Host "WSL is not installed yet (normal on first run). Installing via Microsoft installer..."
+  Write-Host "This often requires a REBOOT. If setup asks you to restart, reboot then run this script again."
+  Write-Host ""
+  try {
+    Run-CmdLine "wsl --install -d $Distro"
+  } catch {
+    Write-Host "Note: wsl --install may have failed or needs a reboot."
+  }
+  Start-Sleep -Seconds 3
+  if (-not (Test-WslSubsystemInstalled)) {
+    throw (
+      "WSL is still not available after 'wsl --install'.`n" +
+      "  1) REBOOT Windows (required after DISM/WSL install on many PCs).`n" +
+      "  2) After reboot, open PowerShell (Admin) and run: wsl --update`n" +
+      "  3) Run this script again.`n" +
+      "Manual: https://aka.ms/wslinstall"
+    )
+  }
+}
+
+Write-Host "Setting default WSL version to 2..."
 Run-CmdLine "wsl --set-default-version 2"
 
 if (-not (Test-WslDistroReady $Distro)) {
-  Write-Host "WSL distro '$Distro' not ready yet - installing / enabling (may require reboot)..."
+  Write-Host "WSL distro '$Distro' not ready yet - finishing setup (may require reboot or first-launch)..."
   try {
     Run-CmdLine "wsl --install -d $Distro"
   } catch {

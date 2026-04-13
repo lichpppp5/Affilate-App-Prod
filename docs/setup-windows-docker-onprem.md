@@ -108,7 +108,22 @@ npm run dev:all
 - Mở Docker Desktop và chờ “Docker Engine running”
 
 ### 4.2 WSL chưa có / lỗi kernel
-PowerShell (Admin):
+
+Nếu bạn thấy: *The Windows Subsystem for Linux is not installed* ngay sau `wsl --set-default-version 2`:
+
+1. **Khởi động lại Windows** (sau khi bật optional feature / chạy `wsl --install`, máy thường cần reboot).
+2. Mở **PowerShell (Admin)** và chạy:
+
+```powershell
+wsl --update
+wsl --install -d Ubuntu
+```
+
+3. Chạy lại `.\scripts\install-windows-docker.ps1`.
+
+Script trong repo đã được chỉnh để gọi `wsl --install` **trước** `wsl --set-default-version 2` khi phát hiện WSL chưa cài.
+
+PowerShell (Admin) — sau khi WSL đã lên:
 
 ```powershell
 wsl --update
