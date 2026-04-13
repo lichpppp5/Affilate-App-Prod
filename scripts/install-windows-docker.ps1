@@ -76,20 +76,21 @@ Run-CmdLine "dism.exe /online /enable-feature /featurename:VirtualMachinePlatfor
 Run-CmdLine "wsl --set-default-version 2"
 
 if (-not (Test-WslDistroReady $Distro)) {
-  Write-Host "WSL distro '$Distro' not ready yet — installing / enabling (may require reboot)..."
+  Write-Host "WSL distro '$Distro' not ready yet - installing / enabling (may require reboot)..."
   try {
     Run-CmdLine "wsl --install -d $Distro"
   } catch {
     Write-Host "Note: wsl --install may require a reboot. After reboot, run this script again."
   }
   if (-not (Test-WslDistroReady $Distro)) {
-    throw @"
-Distro '$Distro' is still not usable. Typical fixes:
-  1) Open 'Ubuntu' from the Start menu once and finish creating the UNIX user.
-  2) Run: wsl --update  then  wsl --shutdown  then re-run this script.
-  3) Reboot if Windows asked you to after enabling WSL.
-  Check: wsl -l -v
-"@
+    # Avoid @" "@ here-strings for multi-line errors: PS 5.1 can misparse lines like "1) ..." after a bad/closing match.
+    throw (
+      "Distro '$Distro' is still not usable. Typical fixes:`n" +
+      "  - Open 'Ubuntu' from the Start menu once and finish creating the UNIX user.`n" +
+      "  - Run: wsl --update then wsl --shutdown then re-run this script.`n" +
+      "  - Reboot if Windows asked you to after enabling WSL.`n" +
+      "  Check: wsl -l -v"
+    )
   }
 } else {
   Write-Host "WSL distro '$Distro' is ready."
