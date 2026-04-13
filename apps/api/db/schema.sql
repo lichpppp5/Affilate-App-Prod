@@ -223,3 +223,79 @@ alter table products
 alter table channel_accounts drop constraint if exists channel_accounts_channel_check;
 alter table channel_accounts add constraint channel_accounts_channel_check
   check (channel in ('tiktok', 'shopee', 'facebook'));
+
+create table if not exists video_templates (
+  id text primary key,
+  tenant_id text not null references tenants(id) on delete cascade,
+  name text not null,
+  channel text not null check (channel in ('tiktok', 'shopee', 'facebook')),
+  aspect_ratio text not null default '9:16',
+  duration_seconds int not null default 30,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (tenant_id, name)
+);
+
+create index if not exists idx_video_templates_tenant on video_templates(tenant_id);
+
+create table if not exists brand_kits (
+  id text primary key,
+  tenant_id text not null references tenants(id) on delete cascade,
+  name text not null,
+  primary_color text not null default '#1d4ed8',
+  font_family text not null default 'Inter',
+  logo_asset_id text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (tenant_id, name)
+);
+
+create index if not exists idx_brand_kits_tenant on brand_kits(tenant_id);
+
+create table if not exists compliance_checklist_items (
+  id text primary key,
+  tenant_id text not null references tenants(id) on delete cascade,
+  channel text not null check (channel in ('tiktok', 'shopee', 'facebook')),
+  code text not null,
+  label text not null,
+  required boolean not null default true,
+  sort_order int not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (tenant_id, channel, code)
+);
+
+create index if not exists idx_compliance_tenant_channel on compliance_checklist_items(tenant_id, channel);
+
+alter table publish_jobs
+  add column if not exists compliance_json text not null default '{"items":{}}';
+
+alter table publish_jobs
+  add column if not exists tracking_params_json text not null default '{}';
+
+create table if not exists channel_capabilities (
+  tenant_id text not null references tenants(id) on delete cascade,
+  channel text not null check (channel in ('tiktok', 'shopee', 'facebook')),
+  capabilities_json text not null default '{}',
+  default_tracking_params_json text not null default '{}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (tenant_id, channel)
+);
+
+create index if not exists idx_channel_capabilities_tenant on channel_capabilities(tenant_id);
+
+create table if not exists product_channel_mappings (
+  id text primary key,
+  tenant_id text not null references tenants(id) on delete cascade,
+  product_id text not null references products(id) on delete cascade,
+  channel text not null check (channel in ('tiktok', 'shopee', 'facebook')),
+  external_product_id text not null default '',
+  metadata_json text not null default '{}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (tenant_id, product_id, channel)
+);
+
+create index if not exists idx_product_channel_mappings_tenant on product_channel_mappings(tenant_id);
+create index if not exists idx_product_channel_mappings_product on product_channel_mappings(product_id);

@@ -18,6 +18,10 @@ import {
 } from "./lib/http";
 import { login, me } from "./routes/auth";
 import {
+  listChannelCapabilities,
+  upsertChannelCapability
+} from "./routes/channel-capabilities";
+import {
   createChannelAccount,
   deleteChannelAccount,
   getChannelAccount,
@@ -75,6 +79,26 @@ import {
   updatePublishJob
 } from "./routes/publish";
 import {
+  createBrandKit,
+  deleteBrandKit,
+  getBrandKit,
+  listBrandKits,
+  updateBrandKit
+} from "./routes/brand-kits";
+import {
+  createComplianceItem,
+  deleteComplianceItem,
+  getComplianceItem,
+  listComplianceItems,
+  updateComplianceItem
+} from "./routes/compliance-items";
+import {
+  createProductChannelMapping,
+  deleteProductChannelMapping,
+  listProductChannelMappings,
+  updateProductChannelMapping
+} from "./routes/product-channel-mappings";
+import {
   createProduct,
   deleteProduct,
   getProduct,
@@ -88,6 +112,13 @@ import {
   listProjects,
   updateProject
 } from "./routes/projects";
+import {
+  createVideoTemplate,
+  deleteVideoTemplate,
+  getVideoTemplate,
+  listVideoTemplates,
+  updateVideoTemplate
+} from "./routes/video-templates";
 import {
   cancelRenderJob,
   createRenderJob,
@@ -302,6 +333,42 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
       return;
     }
 
+    if (method === "GET" && pathname === "/video-templates") {
+      const result = await listVideoTemplates(session);
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    if (method === "POST" && pathname === "/video-templates") {
+      const result = await createVideoTemplate(session, await readJsonBody(request));
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    if (method === "GET" && pathname === "/brand-kits") {
+      const result = await listBrandKits(session);
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    if (method === "POST" && pathname === "/brand-kits") {
+      const result = await createBrandKit(session, await readJsonBody(request));
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    if (method === "GET" && pathname === "/compliance-items") {
+      const result = await listComplianceItems(session, requestUrl.searchParams.get("channel"));
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    if (method === "POST" && pathname === "/compliance-items") {
+      const result = await createComplianceItem(session, await readJsonBody(request));
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
     if (method === "GET" && pathname === "/assets") {
       const result = await listAssets(session);
       sendJson(response, result.statusCode, result.payload);
@@ -384,6 +451,27 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
       return;
     }
 
+    if (method === "GET" && pathname === "/channel-capabilities") {
+      const result = await listChannelCapabilities(session);
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    if (method === "GET" && pathname === "/product-channel-mappings") {
+      const result = await listProductChannelMappings(
+        session,
+        requestUrl.searchParams.get("productId")
+      );
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    if (method === "POST" && pathname === "/product-channel-mappings") {
+      const result = await createProductChannelMapping(session, await readJsonBody(request));
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
     if (method === "GET" && pathname === "/projects") {
       const result = await listProjects(session);
       sendJson(response, result.statusCode, result.payload);
@@ -462,6 +550,24 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
       return;
     }
 
+    const videoTemplateId = matchResource(pathname, "/video-templates/");
+    if (videoTemplateId) {
+      await handleVideoTemplateResource(request, response, session, videoTemplateId);
+      return;
+    }
+
+    const brandKitId = matchResource(pathname, "/brand-kits/");
+    if (brandKitId) {
+      await handleBrandKitResource(request, response, session, brandKitId);
+      return;
+    }
+
+    const complianceItemId = matchResource(pathname, "/compliance-items/");
+    if (complianceItemId) {
+      await handleComplianceItemResource(request, response, session, complianceItemId);
+      return;
+    }
+
     const productId = matchResource(pathname, "/products/");
     if (productId) {
       await handleProductResource(request, response, session, productId);
@@ -513,6 +619,28 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
     const publishJobId = matchResource(pathname, "/publish-jobs/");
     if (publishJobId) {
       await handlePublishJobResource(request, response, session, publishJobId);
+      return;
+    }
+
+    const channelCapabilityChannel = matchResource(pathname, "/channel-capabilities/");
+    if (channelCapabilityChannel && method === "PUT") {
+      const result = await upsertChannelCapability(
+        session,
+        channelCapabilityChannel,
+        await readJsonBody(request)
+      );
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    const productChannelMappingId = matchResource(pathname, "/product-channel-mappings/");
+    if (productChannelMappingId) {
+      await handleProductChannelMappingResource(
+        request,
+        response,
+        session,
+        productChannelMappingId
+      );
       return;
     }
 
@@ -682,6 +810,108 @@ async function handleProductResource(
 
   if (request.method === "DELETE") {
     const result = await deleteProduct(session, productId);
+    sendJson(response, result.statusCode, result.payload);
+    return;
+  }
+
+  sendJson(response, 405, { message: "Method not allowed" });
+}
+
+async function handleVideoTemplateResource(
+  request: IncomingMessage,
+  response: ServerResponse,
+  session: NonNullable<ReturnType<typeof readSessionFromRequest>>,
+  id: string
+) {
+  if (request.method === "GET") {
+    const result = await getVideoTemplate(session, id);
+    sendJson(response, result.statusCode, result.payload);
+    return;
+  }
+
+  if (request.method === "PUT") {
+    const result = await updateVideoTemplate(session, id, await readJsonBody(request));
+    sendJson(response, result.statusCode, result.payload);
+    return;
+  }
+
+  if (request.method === "DELETE") {
+    const result = await deleteVideoTemplate(session, id);
+    sendJson(response, result.statusCode, result.payload);
+    return;
+  }
+
+  sendJson(response, 405, { message: "Method not allowed" });
+}
+
+async function handleBrandKitResource(
+  request: IncomingMessage,
+  response: ServerResponse,
+  session: NonNullable<ReturnType<typeof readSessionFromRequest>>,
+  id: string
+) {
+  if (request.method === "GET") {
+    const result = await getBrandKit(session, id);
+    sendJson(response, result.statusCode, result.payload);
+    return;
+  }
+
+  if (request.method === "PUT") {
+    const result = await updateBrandKit(session, id, await readJsonBody(request));
+    sendJson(response, result.statusCode, result.payload);
+    return;
+  }
+
+  if (request.method === "DELETE") {
+    const result = await deleteBrandKit(session, id);
+    sendJson(response, result.statusCode, result.payload);
+    return;
+  }
+
+  sendJson(response, 405, { message: "Method not allowed" });
+}
+
+async function handleComplianceItemResource(
+  request: IncomingMessage,
+  response: ServerResponse,
+  session: NonNullable<ReturnType<typeof readSessionFromRequest>>,
+  id: string
+) {
+  if (request.method === "GET") {
+    const result = await getComplianceItem(session, id);
+    sendJson(response, result.statusCode, result.payload);
+    return;
+  }
+
+  if (request.method === "PUT") {
+    const result = await updateComplianceItem(session, id, await readJsonBody(request));
+    sendJson(response, result.statusCode, result.payload);
+    return;
+  }
+
+  if (request.method === "DELETE") {
+    const result = await deleteComplianceItem(session, id);
+    sendJson(response, result.statusCode, result.payload);
+    return;
+  }
+
+  sendJson(response, 405, { message: "Method not allowed" });
+}
+
+async function handleProductChannelMappingResource(
+  request: IncomingMessage,
+  response: ServerResponse,
+  session: NonNullable<ReturnType<typeof readSessionFromRequest>>,
+  id: string
+) {
+  if (request.method === "PUT") {
+    const result = await updateProductChannelMapping(session, id, await readJsonBody(request));
+    sendJson(response, result.statusCode, result.payload);
+    return;
+  }
+
+  if (request.method === "DELETE") {
+    const result = await deleteProductChannelMapping(session, id);
     sendJson(response, result.statusCode, result.payload);
     return;
   }

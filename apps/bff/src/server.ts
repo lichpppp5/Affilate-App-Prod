@@ -122,6 +122,7 @@ async function facebookPublishAdapter(input: {
   const caption = String(input.body?.caption ?? "");
   const hashtags = Array.isArray(input.body?.hashtags) ? input.body.hashtags : [];
   const affiliateLink = String(input.body?.affiliateLink ?? "");
+  const externalProductId = String(input.body?.externalProductId ?? "").trim();
 
   if (!publishJobId) {
     return { status: "failed", message: "Missing publishJobId" };
@@ -135,7 +136,12 @@ async function facebookPublishAdapter(input: {
     return { status: "failed", message: "Missing FACEBOOK_PAGE_ID" };
   }
 
-  const message = [caption.trim(), hashtags.join(" ").trim(), affiliateLink.trim()]
+  const message = [
+    caption.trim(),
+    hashtags.join(" ").trim(),
+    affiliateLink.trim(),
+    externalProductId ? `(product:${externalProductId})` : ""
+  ]
     .filter(Boolean)
     .join("\n\n");
 

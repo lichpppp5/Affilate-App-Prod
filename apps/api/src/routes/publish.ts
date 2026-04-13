@@ -5,6 +5,10 @@ import { createId } from "../lib/ids";
 import { enqueuePublishJobId } from "../lib/job-queue";
 import { requirePermission } from "../rbac";
 import {
+  loadChannelCapabilitySettings,
+  parseTrackingParamsObject
+} from "../lib/channel-capabilities";
+import {
   ensureTenantChannelAccount,
   ensureTenantProduct,
   ensureTenantProject
@@ -23,6 +27,8 @@ interface PublishRow {
   disclosure_text: string;
   affiliate_link: string;
   external_id: string;
+  compliance_json: string;
+  tracking_params_json: string;
   scheduled_at: string | null;
   status: string;
 }
@@ -36,8 +42,168 @@ interface PublishInput {
   hashtags?: string[];
   disclosureText?: string;
   affiliateLink?: string;
+  complianceJson?: unknown;
+  trackingParamsJson?: unknown;
   scheduledAt?: string;
   status?: string;
+}
+
+async function validateComplianceForChannel(
+  session: AuthSession,
+  channel: string,
+  complianceJson: unknown
+): Promise<{ ok: true; stored: string } | { ok: false; message: string }> {
+  const checklist = await query<{ code: string; required: boolean }>(
+    `
+      select code, required
+      from compliance_checklist_items
+      where tenant_id = $1 and channel = $2
+    `,
+    [session.tenantId, channel]
+  );
+
+  let raw: { items?: Record<string, unknown> };
+  if (complianceJson === undefined || complianceJson === null) {
+    raw = { items: {} };
+  } else if (typeof complianceJson === "string") {
+    try {
+      raw = JSON.parse(complianceJson) as { items?: Record<string, unknown> };
+    } catch {
+      return { ok: false, message: "complianceJson must be valid JSON" };
+    }
+  } else if (typeof complianceJson === "object" && !Array.isArray(complianceJson)) {
+    raw = complianceJson as { items?: Record<string, unknown> };
+  } else {
+    return { ok: false, message: "complianceJson must be an object or JSON string" };
+  }
+
+  const itemsRaw =
+    raw.items && typeof raw.items === "object" && !Array.isArray(raw.items)
+      ? raw.items
+      : {};
+
+  const items: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(itemsRaw)) {
+    items[key] = Boolean(value);
+  }
+
+  for (const row of checklist.rows) {
+    if (row.required && !items[row.code]) {
+      return {
+        ok: false,
+        message: `Compliance checklist requires "${row.code}" for channel ${channel}`
+      };
+    }
+  }
+
+  return { ok: true, stored: JSON.stringify({ items }) };
+}
+
+function mapComplianceJson(stored: string): { items: Record<string, boolean> } {
+  try {
+    const raw = JSON.parse(stored) as { items?: Record<string, unknown> };
+    const itemsRaw =
+      raw.items && typeof raw.items === "object" && !Array.isArray(raw.items)
+        ? raw.items
+        : {};
+    const items: Record<string, boolean> = {};
+    for (const [key, value] of Object.entries(itemsRaw)) {
+      items[key] = Boolean(value);
+    }
+    return { items };
+  } catch {
+    return { items: {} };
+  }
+}
+
+function mapTrackingParamsJson(stored: string): Record<string, string> {
+  try {
+    return parseTrackingParamsObject(JSON.parse(stored || "{}"));
+  } catch {
+    return {};
+  }
+}
+
+function normalizeTrackingParamsJson(
+  input: unknown
+): { ok: true; stored: string } | { ok: false; message: string } {
+  if (input === undefined || input === null) {
+    return { ok: true, stored: "{}" };
+  }
+
+  let parsed: unknown;
+  if (typeof input === "string") {
+    try {
+      parsed = JSON.parse(input);
+    } catch {
+      return { ok: false, message: "trackingParamsJson must be valid JSON" };
+    }
+  } else {
+    parsed = input;
+  }
+
+  const flat = parseTrackingParamsObject(parsed);
+  return { ok: true, stored: JSON.stringify(flat) };
+}
+
+async function assertPublishAgainstCapabilities(
+  session: AuthSession,
+  channel: string,
+  input: {
+    caption: string;
+    affiliateLink: string;
+    disclosureText: string;
+    productId: string;
+  }
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { capabilities } = await loadChannelCapabilitySettings(
+    session.tenantId,
+    channel
+  );
+
+  if (capabilities.affiliateLinkRequired && !input.affiliateLink.trim()) {
+    return {
+      ok: false,
+      message: `Affiliate link is required for channel ${channel}`
+    };
+  }
+
+  if (capabilities.disclosureRequired && !input.disclosureText.trim()) {
+    return {
+      ok: false,
+      message: `Disclosure text is required for channel ${channel}`
+    };
+  }
+
+  if (
+    capabilities.maxCaptionLength != null &&
+    input.caption.length > capabilities.maxCaptionLength
+  ) {
+    return {
+      ok: false,
+      message: `Caption exceeds maximum length (${capabilities.maxCaptionLength}) for ${channel}`
+    };
+  }
+
+  if (capabilities.requireProductMapping) {
+    const m = await query<{ id: string }>(
+      `
+        select id
+        from product_channel_mappings
+        where tenant_id = $1 and product_id = $2 and channel = $3
+      `,
+      [session.tenantId, input.productId, channel]
+    );
+
+    if (m.rows.length === 0) {
+      return {
+        ok: false,
+        message: `Product channel mapping is required for this product on ${channel}`
+      };
+    }
+  }
+
+  return { ok: true };
 }
 
 export async function listPublishJobs(session: AuthSession) {
@@ -60,6 +226,8 @@ export async function listPublishJobs(session: AuthSession) {
         disclosure_text,
         affiliate_link,
         external_id,
+        compliance_json,
+        tracking_params_json,
         scheduled_at::text,
         status
       from publish_jobs
@@ -95,6 +263,8 @@ export async function getPublishJob(session: AuthSession, id: string) {
         disclosure_text,
         affiliate_link,
         external_id,
+        compliance_json,
+        tracking_params_json,
         scheduled_at::text,
         status
       from publish_jobs
@@ -138,6 +308,30 @@ export async function createPublishJob(
     return invalid("Referenced channel account does not belong to tenant");
   }
 
+  const compliance = await validateComplianceForChannel(
+    session,
+    body.channel,
+    body.complianceJson ?? { items: {} }
+  );
+  if (!compliance.ok) {
+    return invalid(compliance.message);
+  }
+
+  const capCheck = await assertPublishAgainstCapabilities(session, body.channel, {
+    caption: body.caption ?? "",
+    affiliateLink: body.affiliateLink ?? "",
+    disclosureText: body.disclosureText ?? "",
+    productId: body.productId
+  });
+  if (!capCheck.ok) {
+    return invalid(capCheck.message);
+  }
+
+  const tracking = normalizeTrackingParamsJson(body.trackingParamsJson ?? {});
+  if (!tracking.ok) {
+    return invalid(tracking.message);
+  }
+
   const result = await query<PublishRow>(
     `
       insert into publish_jobs (
@@ -152,10 +346,12 @@ export async function createPublishJob(
         disclosure_text,
         affiliate_link,
         external_id,
+        compliance_json,
+        tracking_params_json,
         scheduled_at,
         status
       )
-      values ($1, $2, $3, $4, $5, $6, $7, $8::text[], $9, $10, $11, $12, $13)
+      values ($1, $2, $3, $4, $5, $6, $7, $8::text[], $9, $10, $11, $12, $13, $14, $15, $16)
       returning
         id,
         tenant_id,
@@ -168,6 +364,8 @@ export async function createPublishJob(
         disclosure_text,
         affiliate_link,
         external_id,
+        compliance_json,
+        tracking_params_json,
         scheduled_at::text,
         status
     `,
@@ -183,6 +381,8 @@ export async function createPublishJob(
       body.disclosureText ?? "",
       body.affiliateLink ?? "",
       "",
+      compliance.stored,
+      tracking.stored,
       body.scheduledAt ?? null,
       body.status ?? "queued"
     ]
@@ -233,6 +433,9 @@ export async function updatePublishJob(
         hashtags,
         disclosure_text,
         affiliate_link,
+        external_id,
+        compliance_json,
+        tracking_params_json,
         scheduled_at::text,
         status
       from publish_jobs
@@ -245,9 +448,10 @@ export async function updatePublishJob(
     return notFound();
   }
 
-  const current = existing.rows[0];
+  const current = existing.rows[0]!;
   const nextProjectId = body.projectId ?? current.project_id;
   const nextProductId = body.productId ?? current.product_id;
+  const nextChannel = body.channel ?? current.channel;
 
   if (!(await ensureTenantProject(session, nextProjectId))) {
     return invalid("Referenced project does not belong to tenant");
@@ -261,10 +465,44 @@ export async function updatePublishJob(
     !(await ensureTenantChannelAccount(
       session,
       body.accountId ?? current.account_id,
-      body.channel ?? current.channel
+      nextChannel
     ))
   ) {
     return invalid("Referenced channel account does not belong to tenant");
+  }
+
+  const complianceInput =
+    body.complianceJson !== undefined
+      ? body.complianceJson
+      : mapComplianceJson(current.compliance_json);
+  const compliance = await validateComplianceForChannel(session, nextChannel, complianceInput);
+  if (!compliance.ok) {
+    return invalid(compliance.message);
+  }
+
+  const capCheck = await assertPublishAgainstCapabilities(session, nextChannel, {
+    caption: body.caption ?? current.caption,
+    affiliateLink: body.affiliateLink ?? current.affiliate_link,
+    disclosureText: body.disclosureText ?? current.disclosure_text,
+    productId: nextProductId
+  });
+  if (!capCheck.ok) {
+    return invalid(capCheck.message);
+  }
+
+  const trackingInput =
+    body.trackingParamsJson !== undefined
+      ? body.trackingParamsJson
+      : (() => {
+          try {
+            return JSON.parse(current.tracking_params_json || "{}");
+          } catch {
+            return {};
+          }
+        })();
+  const tracking = normalizeTrackingParamsJson(trackingInput);
+  if (!tracking.ok) {
+    return invalid(tracking.message);
   }
 
   const result = await query<PublishRow>(
@@ -278,8 +516,10 @@ export async function updatePublishJob(
           hashtags = $8::text[],
           disclosure_text = $9,
           affiliate_link = $10,
-          scheduled_at = $11,
-          status = $12,
+          compliance_json = $11,
+          tracking_params_json = $12,
+          scheduled_at = $13,
+          status = $14,
           updated_at = now()
       where tenant_id = $1 and id = $2
       returning
@@ -294,6 +534,8 @@ export async function updatePublishJob(
         disclosure_text,
         affiliate_link,
         external_id,
+        compliance_json,
+        tracking_params_json,
         scheduled_at::text,
         status
     `,
@@ -302,12 +544,14 @@ export async function updatePublishJob(
       id,
       nextProjectId,
       nextProductId,
-      body.channel ?? current.channel,
+      nextChannel,
       body.accountId ?? current.account_id,
       body.caption ?? current.caption,
       body.hashtags ?? current.hashtags,
       body.disclosureText ?? current.disclosure_text,
       body.affiliateLink ?? current.affiliate_link,
+      compliance.stored,
+      tracking.stored,
       body.scheduledAt ?? current.scheduled_at,
       body.status ?? current.status
     ]
@@ -386,6 +630,9 @@ export async function retryPublishJob(session: AuthSession, id: string) {
         hashtags,
         disclosure_text,
         affiliate_link,
+        external_id,
+        compliance_json,
+        tracking_params_json,
         scheduled_at::text,
         status
     `,
@@ -440,6 +687,9 @@ export async function cancelPublishJob(session: AuthSession, id: string) {
         hashtags,
         disclosure_text,
         affiliate_link,
+        external_id,
+        compliance_json,
+        tracking_params_json,
         scheduled_at::text,
         status
     `,
@@ -512,6 +762,8 @@ function mapPublishJob(row: PublishRow) {
     disclosureText: row.disclosure_text,
     affiliateLink: row.affiliate_link,
     externalId: row.external_id || undefined,
+    complianceJson: mapComplianceJson(row.compliance_json),
+    trackingParamsJson: mapTrackingParamsJson(row.tracking_params_json),
     scheduledAt: row.scheduled_at ?? undefined,
     status: row.status
   };

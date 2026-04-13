@@ -63,3 +63,43 @@ export async function ensureTenantChannelAccount(
 
   return result.rows.length > 0;
 }
+
+export async function ensureTenantVideoTemplate(
+  session: AuthSession,
+  templateId: string | undefined
+) {
+  if (!templateId) {
+    return false;
+  }
+
+  const result = await query<{ id: string }>(
+    `
+      select id
+      from video_templates
+      where tenant_id = $1 and id = $2
+    `,
+    [session.tenantId, templateId]
+  );
+
+  return result.rows.length > 0;
+}
+
+export async function ensureTenantBrandKit(
+  session: AuthSession,
+  brandKitId: string | null | undefined
+) {
+  if (brandKitId == null || brandKitId === "") {
+    return true;
+  }
+
+  const result = await query<{ id: string }>(
+    `
+      select id
+      from brand_kits
+      where tenant_id = $1 and id = $2
+    `,
+    [session.tenantId, brandKitId]
+  );
+
+  return result.rows.length > 0;
+}

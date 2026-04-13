@@ -3,7 +3,11 @@ import { recordAudit } from "../audit";
 import { query } from "../db";
 import { createId } from "../lib/ids";
 import { requirePermission } from "../rbac";
-import { ensureTenantProduct } from "./helpers";
+import {
+  ensureTenantBrandKit,
+  ensureTenantProduct,
+  ensureTenantVideoTemplate
+} from "./helpers";
 
 interface ProjectRow {
   id: string;
@@ -18,7 +22,7 @@ interface ProjectRow {
 interface ProjectInput {
   productId?: string;
   templateId?: string;
-  brandKitId?: string;
+  brandKitId?: string | null;
   status?: string;
   title?: string;
 }
@@ -82,6 +86,14 @@ export async function createProject(session: AuthSession, body: ProjectInput) {
 
   if (!(await ensureTenantProduct(session, body.productId))) {
     return invalid("Referenced product does not belong to tenant");
+  }
+
+  if (!(await ensureTenantVideoTemplate(session, body.templateId))) {
+    return invalid("Referenced video template does not belong to tenant");
+  }
+
+  if (!(await ensureTenantBrandKit(session, body.brandKitId))) {
+    return invalid("Referenced brand kit does not belong to tenant");
   }
 
   const result = await query<ProjectRow>(
@@ -153,6 +165,21 @@ export async function updateProject(
     return invalid("Referenced product does not belong to tenant");
   }
 
+  const nextTemplateId = body.templateId ?? current.template_id;
+  if (!(await ensureTenantVideoTemplate(session, nextTemplateId))) {
+    return invalid("Referenced video template does not belong to tenant");
+  }
+
+  const nextBrandKitId =
+    body.brandKitId === undefined
+      ? current.brand_kit_id
+      : body.brandKitId === null || String(body.brandKitId).trim() === ""
+        ? null
+        : String(body.brandKitId).trim();
+  if (!(await ensureTenantBrandKit(session, nextBrandKitId))) {
+    return invalid("Referenced brand kit does not belong to tenant");
+  }
+
   const result = await query<ProjectRow>(
     `
       update video_projects
@@ -169,8 +196,8 @@ export async function updateProject(
       session.tenantId,
       id,
       nextProductId,
-      body.templateId ?? current.template_id,
-      body.brandKitId ?? current.brand_kit_id,
+      nextTemplateId,
+      nextBrandKitId ?? null,
       body.status ?? current.status,
       body.title ?? current.title
     ]

@@ -69,6 +69,34 @@ export interface PresignedUploadPayload {
   storageKey: string;
 }
 
+export interface VideoTemplateRecord {
+  id: string;
+  tenantId: string;
+  name: string;
+  channel: string;
+  aspectRatio: string;
+  durationSeconds: number;
+}
+
+export interface BrandKitRecord {
+  id: string;
+  tenantId: string;
+  name: string;
+  primaryColor: string;
+  fontFamily: string;
+  logoAssetId?: string;
+}
+
+export interface ComplianceItemRecord {
+  id: string;
+  tenantId: string;
+  channel: string;
+  code: string;
+  label: string;
+  required: boolean;
+  sortOrder: number;
+}
+
 export interface ProjectRecord {
   id: string;
   tenantId: string;
@@ -102,8 +130,35 @@ export interface PublishJobRecord {
   disclosureText: string;
   affiliateLink: string;
   externalId?: string;
+  complianceJson: { items: Record<string, boolean> };
+  trackingParamsJson: Record<string, string>;
   scheduledAt?: string;
   status: string;
+}
+
+export interface ChannelCapabilityEffective {
+  affiliateLinkRequired: boolean;
+  disclosureRequired: boolean;
+  maxCaptionLength: number | null;
+  requireProductMapping: boolean;
+}
+
+export interface ChannelCapabilityRecord {
+  channel: string;
+  configured: boolean;
+  capabilitiesJson: Record<string, unknown>;
+  effective: ChannelCapabilityEffective;
+  defaults: ChannelCapabilityEffective;
+  defaultTrackingParams: Record<string, string>;
+}
+
+export interface ProductChannelMappingRecord {
+  id: string;
+  tenantId: string;
+  productId: string;
+  channel: string;
+  externalProductId: string;
+  metadataJson: Record<string, unknown>;
 }
 
 export interface RenderJobRecord {
@@ -488,6 +543,65 @@ export async function refreshChannelAccount(token: string, id: string) {
   });
 }
 
+export async function listChannelCapabilities(token: string) {
+  return request<ChannelCapabilityRecord[]>("/channel-capabilities", { token });
+}
+
+export async function upsertChannelCapability(
+  token: string,
+  channel: string,
+  input: {
+    capabilitiesJson?: Record<string, unknown>;
+    defaultTrackingParamsJson?: Record<string, unknown>;
+  }
+) {
+  return request<{
+    channel: string;
+    capabilitiesJson: Record<string, unknown>;
+    effective: ChannelCapabilityEffective;
+    defaultTrackingParams: Record<string, string>;
+  }>(`/channel-capabilities/${channel}`, {
+    method: "PUT",
+    token,
+    body: JSON.stringify(input)
+  });
+}
+
+export async function listProductChannelMappings(token: string, productId?: string) {
+  const q = productId ? `?productId=${encodeURIComponent(productId)}` : "";
+  return request<ProductChannelMappingRecord[]>(`/product-channel-mappings${q}`, { token });
+}
+
+export async function createProductChannelMapping(
+  token: string,
+  input: Omit<ProductChannelMappingRecord, "id" | "tenantId">
+) {
+  return request<ProductChannelMappingRecord>("/product-channel-mappings", {
+    method: "POST",
+    token,
+    body: JSON.stringify(input)
+  });
+}
+
+export async function updateProductChannelMapping(
+  token: string,
+  id: string,
+  input: Partial<Omit<ProductChannelMappingRecord, "id" | "tenantId">>
+) {
+  return request<ProductChannelMappingRecord>(`/product-channel-mappings/${id}`, {
+    method: "PUT",
+    token,
+    body: JSON.stringify(input)
+  });
+}
+
+export async function deleteProductChannelMapping(token: string, id: string) {
+  return request<{ deleted: boolean; id: string }>(`/product-channel-mappings/${id}`, {
+    method: "DELETE",
+    token
+  });
+}
+
 export function getOAuthStartUrl(
   provider: ChannelAccountRecord["channel"],
   accountId: string,
@@ -499,6 +613,109 @@ export function getOAuthStartUrl(
   });
 
   return `${API_BASE_URL}/oauth/${provider}/start?${params.toString()}`;
+}
+
+export async function listVideoTemplates(token: string) {
+  return request<VideoTemplateRecord[]>("/video-templates", { token });
+}
+
+export async function createVideoTemplate(
+  token: string,
+  input: Omit<VideoTemplateRecord, "id" | "tenantId">
+) {
+  return request<VideoTemplateRecord>("/video-templates", {
+    method: "POST",
+    token,
+    body: JSON.stringify(input)
+  });
+}
+
+export async function updateVideoTemplate(
+  token: string,
+  id: string,
+  input: Partial<Omit<VideoTemplateRecord, "id" | "tenantId">>
+) {
+  return request<VideoTemplateRecord>(`/video-templates/${id}`, {
+    method: "PUT",
+    token,
+    body: JSON.stringify(input)
+  });
+}
+
+export async function deleteVideoTemplate(token: string, id: string) {
+  return request<{ deleted: boolean; id: string }>(`/video-templates/${id}`, {
+    method: "DELETE",
+    token
+  });
+}
+
+export async function listBrandKits(token: string) {
+  return request<BrandKitRecord[]>("/brand-kits", { token });
+}
+
+export async function createBrandKit(
+  token: string,
+  input: Omit<BrandKitRecord, "id" | "tenantId">
+) {
+  return request<BrandKitRecord>("/brand-kits", {
+    method: "POST",
+    token,
+    body: JSON.stringify(input)
+  });
+}
+
+export async function updateBrandKit(
+  token: string,
+  id: string,
+  input: Partial<Omit<BrandKitRecord, "id" | "tenantId">>
+) {
+  return request<BrandKitRecord>(`/brand-kits/${id}`, {
+    method: "PUT",
+    token,
+    body: JSON.stringify(input)
+  });
+}
+
+export async function deleteBrandKit(token: string, id: string) {
+  return request<{ deleted: boolean; id: string }>(`/brand-kits/${id}`, {
+    method: "DELETE",
+    token
+  });
+}
+
+export async function listComplianceItems(token: string, channel?: string) {
+  const q = channel ? `?channel=${encodeURIComponent(channel)}` : "";
+  return request<ComplianceItemRecord[]>(`/compliance-items${q}`, { token });
+}
+
+export async function createComplianceItem(
+  token: string,
+  input: Omit<ComplianceItemRecord, "id" | "tenantId">
+) {
+  return request<ComplianceItemRecord>("/compliance-items", {
+    method: "POST",
+    token,
+    body: JSON.stringify(input)
+  });
+}
+
+export async function updateComplianceItem(
+  token: string,
+  id: string,
+  input: Partial<Omit<ComplianceItemRecord, "id" | "tenantId">>
+) {
+  return request<ComplianceItemRecord>(`/compliance-items/${id}`, {
+    method: "PUT",
+    token,
+    body: JSON.stringify(input)
+  });
+}
+
+export async function deleteComplianceItem(token: string, id: string) {
+  return request<{ deleted: boolean; id: string }>(`/compliance-items/${id}`, {
+    method: "DELETE",
+    token
+  });
 }
 
 export async function listProjects(token: string) {
@@ -519,7 +736,9 @@ export async function createProject(
 export async function updateProject(
   token: string,
   id: string,
-  input: Partial<Omit<ProjectRecord, "id" | "tenantId">>
+  input: Partial<Omit<ProjectRecord, "id" | "tenantId" | "brandKitId">> & {
+    brandKitId?: string | null;
+  }
 ) {
   return request<ProjectRecord>(`/projects/${id}`, {
     method: "PUT",
@@ -616,7 +835,9 @@ export async function listPublishJobs(token: string) {
 
 export async function createPublishJob(
   token: string,
-  input: Omit<PublishJobRecord, "id" | "tenantId">
+  input: Omit<PublishJobRecord, "id" | "tenantId" | "externalId" | "trackingParamsJson"> & {
+    trackingParamsJson?: Record<string, string>;
+  }
 ) {
   return request<PublishJobRecord>("/publish-jobs", {
     method: "POST",
@@ -628,7 +849,7 @@ export async function createPublishJob(
 export async function updatePublishJob(
   token: string,
   id: string,
-  input: Partial<Omit<PublishJobRecord, "id" | "tenantId">>
+  input: Partial<Omit<PublishJobRecord, "id" | "tenantId" | "externalId">>
 ) {
   return request<PublishJobRecord>(`/publish-jobs/${id}`, {
     method: "PUT",

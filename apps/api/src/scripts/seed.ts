@@ -291,9 +291,159 @@ async function main() {
 
     await pool.query(
       `
+        insert into video_templates (id, tenant_id, name, channel, aspect_ratio, duration_seconds)
+        values
+          ('template_tiktok_ugc', $1, 'TikTok UGC 9:16', 'tiktok', '9:16', 30),
+          ('template_fb_square', $1, 'Facebook vuông', 'facebook', '1:1', 45)
+        on conflict (id) do update
+        set tenant_id = excluded.tenant_id,
+            name = excluded.name,
+            channel = excluded.channel,
+            aspect_ratio = excluded.aspect_ratio,
+            duration_seconds = excluded.duration_seconds,
+            updated_at = now()
+      `,
+      [DEMO.tenantId]
+    );
+
+    await pool.query(
+      `
+        insert into brand_kits (id, tenant_id, name, primary_color, font_family, logo_asset_id)
+        values ('kit_demo_main', $1, 'Demo chính', '#2563eb', 'Inter', '')
+        on conflict (id) do update
+        set tenant_id = excluded.tenant_id,
+            name = excluded.name,
+            primary_color = excluded.primary_color,
+            font_family = excluded.font_family,
+            logo_asset_id = excluded.logo_asset_id,
+            updated_at = now()
+      `,
+      [DEMO.tenantId]
+    );
+
+    await pool.query(
+      `
+        insert into compliance_checklist_items (
+          id,
+          tenant_id,
+          channel,
+          code,
+          label,
+          required,
+          sort_order
+        )
+        values
+          (
+            'comp_demo_tt_ad',
+            $1,
+            'tiktok',
+            'ad_disclosure_in_caption',
+            'Có công bố quảng cáo (#ad hoặc tương đương) trong caption',
+            true,
+            10
+          ),
+          (
+            'comp_demo_fb_link',
+            $1,
+            'facebook',
+            'affiliate_link_in_post',
+            'Liên kết affiliate có trong nội dung bài đăng',
+            true,
+            10
+          ),
+          (
+            'comp_demo_sp_tag',
+            $1,
+            'shopee',
+            'product_tag_or_link',
+            'Gắn thẻ sản phẩm hoặc liên kết Shopee hợp lệ',
+            true,
+            10
+          )
+        on conflict (tenant_id, channel, code) do update
+        set label = excluded.label,
+            required = excluded.required,
+            sort_order = excluded.sort_order,
+            updated_at = now()
+      `,
+      [DEMO.tenantId]
+    );
+
+    await pool.query(
+      `
+        insert into channel_capabilities (
+          tenant_id,
+          channel,
+          capabilities_json,
+          default_tracking_params_json
+        )
+        values
+          (
+            $1,
+            'facebook',
+            '{"affiliateLinkRequired":true,"disclosureRequired":false,"maxCaptionLength":8000,"requireProductMapping":false}',
+            '{"utm_source":"facebook","utm_medium":"affiliate","utm_campaign":"demo_tenant"}'
+          ),
+          (
+            $1,
+            'tiktok',
+            '{"affiliateLinkRequired":false,"disclosureRequired":true,"maxCaptionLength":2200,"requireProductMapping":false}',
+            '{"utm_source":"tiktok","utm_medium":"affiliate","utm_campaign":"demo_tenant"}'
+          ),
+          (
+            $1,
+            'shopee',
+            '{"affiliateLinkRequired":false,"disclosureRequired":false,"maxCaptionLength":null,"requireProductMapping":false}',
+            '{}'
+          )
+        on conflict (tenant_id, channel) do update
+        set capabilities_json = excluded.capabilities_json,
+            default_tracking_params_json = excluded.default_tracking_params_json,
+            updated_at = now()
+      `,
+      [DEMO.tenantId]
+    );
+
+    await pool.query(
+      `
+        insert into product_channel_mappings (
+          id,
+          tenant_id,
+          product_id,
+          channel,
+          external_product_id,
+          metadata_json
+        )
+        values
+          (
+            'pmap_demo_fb_serum',
+            $1,
+            'prod_demo_serum',
+            'facebook',
+            'fb_catalog_serum_demo',
+            '{}'
+          ),
+          (
+            'pmap_demo_tt_serum',
+            $1,
+            'prod_demo_serum',
+            'tiktok',
+            'tt_product_serum_demo',
+            '{}'
+          )
+        on conflict (tenant_id, product_id, channel) do update
+        set external_product_id = excluded.external_product_id,
+            metadata_json = excluded.metadata_json,
+            updated_at = now()
+      `,
+      [DEMO.tenantId]
+    );
+
+    await pool.query(
+      `
         insert into video_projects (id, tenant_id, product_id, template_id, brand_kit_id, status, title)
         values
-          ('proj_demo_serum', $1, 'prod_demo_serum', 'template_tiktok_ugc', null, 'review', 'Glow Serum short UGC')
+          ('proj_demo_serum', $1, 'prod_demo_serum', 'template_tiktok_ugc', 'kit_demo_main', 'review', 'Glow Serum short UGC')
         on conflict (id) do update
         set tenant_id = excluded.tenant_id,
             product_id = excluded.product_id,
@@ -375,6 +525,8 @@ async function main() {
           hashtags,
           disclosure_text,
           affiliate_link,
+          compliance_json,
+          tracking_params_json,
           scheduled_at,
           status
         )
@@ -390,6 +542,8 @@ async function main() {
             array['#beauty', '#tiktokshop']::text[],
             '#ad',
             'https://example.com/affiliate/glow-serum',
+            '{"items":{"ad_disclosure_in_caption":true}}',
+            '{"utm_content":"demo_publish_job"}',
             now() + interval '1 day',
             'draft_uploaded'
           )
@@ -403,6 +557,8 @@ async function main() {
             hashtags = excluded.hashtags,
             disclosure_text = excluded.disclosure_text,
             affiliate_link = excluded.affiliate_link,
+            compliance_json = excluded.compliance_json,
+            tracking_params_json = excluded.tracking_params_json,
             scheduled_at = excluded.scheduled_at,
             status = excluded.status,
             updated_at = now()

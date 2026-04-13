@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import type {
   ChannelAccountRecord,
+  ComplianceItemRecord,
   ProductRecord,
   ProjectRecord,
   PublishAttemptRecord,
@@ -16,6 +17,7 @@ import {
   createPublishJob,
   deletePublishJob,
   listChannelAccounts,
+  listComplianceItems,
   listProducts,
   listProjects,
   listPublishAttempts,
@@ -30,15 +32,31 @@ import { useAuth } from "./auth-provider";
 import { PageHeader } from "./page-header";
 import { StatusBadge } from "./status-badge";
 
+function parseFlatTrackingJson(raw: string): Record<string, string> {
+  const parsed = JSON.parse(raw.trim() || "{}") as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("invalid");
+  }
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+    if (v === null || v === undefined) {
+      continue;
+    }
+    out[k] = typeof v === "string" ? v : String(v);
+  }
+  return out;
+}
+
 const emptyForm = {
   projectId: "",
   productId: "",
-  channel: "tiktok",
+  channel: "facebook",
   accountId: "",
   caption: "",
   hashtags: "#ad,#promo",
   disclosureText: "#ad",
   affiliateLink: "",
+  trackingParamsText: "{}",
   scheduledAt: "",
   status: "queued"
 };
@@ -51,6 +69,10 @@ export function PublishManager() {
   const [channelAccounts, setChannelAccounts] = useState<ChannelAccountRecord[]>([]);
   const [attempts, setAttempts] = useState<PublishAttemptRecord[]>([]);
   const [webhooks, setWebhooks] = useState<PublishWebhookRecord[]>([]);
+  const [checklist, setChecklist] = useState<ComplianceItemRecord[]>([]);
+  const [complianceChecks, setComplianceChecks] = useState<Record<string, boolean>>(
+    {}
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [query, setQuery] = useState("");
@@ -109,6 +131,7 @@ export function PublishManager() {
   useEffect(() => {
     if (!selectedItem) {
       setForm(emptyForm);
+      setComplianceChecks({});
       return;
     }
 
@@ -121,10 +144,49 @@ export function PublishManager() {
       hashtags: selectedItem.hashtags.join(","),
       disclosureText: selectedItem.disclosureText,
       affiliateLink: selectedItem.affiliateLink,
+      trackingParamsText: JSON.stringify(selectedItem.trackingParamsJson ?? {}, null, 2),
       scheduledAt: selectedItem.scheduledAt?.slice(0, 16) ?? "",
       status: selectedItem.status
     });
+    setComplianceChecks(selectedItem.complianceJson?.items ?? {});
   }, [selectedItem]);
+
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    let canceled = false;
+
+    void (async () => {
+      try {
+        const rows = await listComplianceItems(token, form.channel);
+        if (!canceled) {
+          setChecklist(rows);
+        }
+      } catch {
+        if (!canceled) {
+          setChecklist([]);
+        }
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, [token, form.channel]);
+
+  useEffect(() => {
+    setComplianceChecks((prev) => {
+      const next = { ...prev };
+      for (const row of checklist) {
+        if (next[row.code] === undefined) {
+          next[row.code] = false;
+        }
+      }
+      return next;
+    });
+  }, [checklist]);
 
   useEffect(() => {
     if (form.accountId && !availableAccounts.some((item) => item.id === form.accountId)) {
@@ -196,6 +258,19 @@ export function PublishManager() {
     setSaving(true);
     setError(null);
 
+    let trackingParamsJson: Record<string, string>;
+    try {
+      trackingParamsJson = parseFlatTrackingJson(form.trackingParamsText);
+    } catch {
+      setError("JSON tham số tracking không hợp lệ (object key → string).");
+      setSaving(false);
+      return;
+    }
+
+    const complianceItems = Object.fromEntries(
+      checklist.map((row) => [row.code, Boolean(complianceChecks[row.code])])
+    );
+
     const payload = {
       projectId: form.projectId,
       productId: form.productId,
@@ -208,6 +283,8 @@ export function PublishManager() {
         .filter(Boolean),
       disclosureText: form.disclosureText,
       affiliateLink: form.affiliateLink,
+      complianceJson: { items: complianceItems },
+      trackingParamsJson,
       scheduledAt: form.scheduledAt ? new Date(form.scheduledAt).toISOString() : undefined,
       status: form.status
     };
@@ -416,6 +493,47 @@ export function PublishManager() {
               placeholder="Từ sản phẩm hoặc dán tay — cần cho Facebook"
             />
           </label>
+          <label className="field">
+            <span>Tham số tracking (JSON object)</span>
+            <textarea
+              rows={4}
+              value={form.trackingParamsText}
+              onChange={(event) =>
+                setForm({ ...form, trackingParamsText: event.target.value })
+              }
+              placeholder='{"utm_campaign":"spring"}'
+            />
+            <span className="muted">
+              Gộp vào query string của link affiliate khi worker gửi BFF (đè lên mặc định theo kênh).
+            </span>
+          </label>
+          {checklist.length > 0 ? (
+            <div className="stack">
+              <strong>Tuân thủ ({form.channel})</strong>
+              {checklist.map((row) => (
+                <label className="field" key={row.id}>
+                  <span>
+                    {row.label}
+                    {row.required ? " *" : ""}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(complianceChecks[row.code])}
+                    onChange={() =>
+                      setComplianceChecks((current) => ({
+                        ...current,
+                        [row.code]: !current[row.code]
+                      }))
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+          ) : (
+            <div className="muted">
+              Chưa cấu hình checklist cho kênh này (trang Tuân thủ kênh).
+            </div>
+          )}
           <label className="field">
             <span>Lên lịch lúc</span>
             <input

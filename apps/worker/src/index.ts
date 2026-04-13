@@ -11,6 +11,8 @@ import {
   jobQueueKeys,
   workerJobQueueEnabled
 } from "./job-queue-consumer";
+import { mergeAffiliateUrl, parseFlatParamsJson } from "./affiliate-tracking";
+import { parseWorkerChannelCaps } from "./channel-caps";
 import {
   dispatchWorkerPublish,
   refreshWorkerProviderToken,
@@ -427,27 +429,69 @@ async function processPublishJob(job: {
       return;
     }
 
-    if (job.channel === "tiktok" && !job.disclosure_text.trim()) {
+    const enrich = await pool.query<{
+      tracking_params_json: string;
+      default_tracking_params_json: string | null;
+      external_product_id: string | null;
+      capabilities_json: string | null;
+    }>(
+      `
+        select pj.tracking_params_json,
+               cc.default_tracking_params_json,
+               pm.external_product_id,
+               cc.capabilities_json
+        from publish_jobs pj
+        left join channel_capabilities cc
+          on cc.tenant_id = pj.tenant_id and cc.channel = pj.channel
+        left join product_channel_mappings pm
+          on pm.tenant_id = pj.tenant_id
+         and pm.product_id = pj.product_id
+         and pm.channel = pj.channel
+        where pj.id = $1
+      `,
+      [job.id]
+    );
+
+    const enrichRow = enrich.rows[0];
+    const caps = parseWorkerChannelCaps(job.channel, enrichRow?.capabilities_json ?? null);
+
+    if (caps.disclosureRequired && !job.disclosure_text.trim()) {
       throw new Error("Missing disclosure_text");
     }
 
-    if (job.channel === "facebook" && !job.affiliate_link.trim()) {
-      throw new Error("Missing affiliate_link for facebook");
+    if (caps.affiliateLinkRequired && !job.affiliate_link.trim()) {
+      throw new Error("Missing affiliate_link");
     }
 
+    const defaultParams = parseFlatParamsJson(enrichRow?.default_tracking_params_json ?? null);
+    const jobParams = parseFlatParamsJson(enrichRow?.tracking_params_json ?? null);
+    const mergedAffiliateLink = mergeAffiliateUrl(
+      job.affiliate_link,
+      defaultParams,
+      jobParams
+    );
+
+    const externalProductId = enrichRow?.external_product_id?.trim() ?? "";
+
     const account = await ensurePublishAccountReady(job);
+    const publishPayload: Record<string, unknown> = {
+      publishJobId: job.id,
+      projectId: job.project_id,
+      channel: job.channel,
+      disclosureText: job.disclosure_text,
+      caption: job.caption,
+      hashtags: job.hashtags,
+      affiliateLink: mergedAffiliateLink
+    };
+
+    if (externalProductId) {
+      publishPayload.externalProductId = externalProductId;
+    }
+
     const providerResponse = await dispatchWorkerPublish({
       provider: job.channel as WorkerProviderName,
       accessToken: account.accessToken,
-      payload: {
-        publishJobId: job.id,
-        projectId: job.project_id,
-        channel: job.channel,
-        disclosureText: job.disclosure_text,
-        caption: job.caption,
-        hashtags: job.hashtags,
-        affiliateLink: job.affiliate_link
-      }
+      payload: publishPayload
     });
 
     const nextStatus = providerResponse.status;

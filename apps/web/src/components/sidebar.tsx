@@ -10,7 +10,16 @@ const items: { href: string; label: string; permission: string }[] = [
   { href: "/products", label: "Sản phẩm", permission: "products:read" },
   { href: "/assets", label: "Tài nguyên", permission: "assets:read" },
   { href: "/channels", label: "Kênh bán", permission: "channels:read" },
+  {
+    href: "/channel-capabilities",
+    label: "Năng lực kênh",
+    permission: "channels:read"
+  },
+  { href: "/product-mappings", label: "Mapping sản phẩm", permission: "publish:read" },
   { href: "/projects", label: "Dự án video", permission: "projects:read" },
+  { href: "/video-templates", label: "Mẫu video", permission: "projects:read" },
+  { href: "/brand-kits", label: "Bộ nhận diện", permission: "projects:read" },
+  { href: "/compliance", label: "Tuân thủ kênh", permission: "projects:read" },
   { href: "/approvals", label: "Phê duyệt", permission: "approvals:read" },
   { href: "/publish", label: "Xuất bản", permission: "publish:read" },
   { href: "/reports", label: "Báo cáo", permission: "reports:read" },

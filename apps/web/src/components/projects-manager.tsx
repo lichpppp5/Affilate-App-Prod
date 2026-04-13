@@ -3,7 +3,13 @@
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 
-import type { ProductRecord, ProjectRecord, RenderJobRecord } from "../lib/api";
+import type {
+  BrandKitRecord,
+  ProductRecord,
+  ProjectRecord,
+  RenderJobRecord,
+  VideoTemplateRecord
+} from "../lib/api";
 import {
   cancelRenderJob,
   createRenderJob,
@@ -11,9 +17,11 @@ import {
   deleteRenderJob,
   deleteProject,
   getRenderMediaUrl,
+  listBrandKits,
   listProducts,
   listProjects,
   listRenderJobs,
+  listVideoTemplates,
   retryRenderJob,
   updateProject
 } from "../lib/api";
@@ -34,6 +42,8 @@ export function ProjectsManager() {
   const { token } = useAuth();
   const [items, setItems] = useState<ProjectRecord[]>([]);
   const [products, setProducts] = useState<ProductRecord[]>([]);
+  const [templates, setTemplates] = useState<VideoTemplateRecord[]>([]);
+  const [brandKits, setBrandKits] = useState<BrandKitRecord[]>([]);
   const [renderJobs, setRenderJobs] = useState<RenderJobRecord[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -124,13 +134,18 @@ export function ProjectsManager() {
     }
 
     try {
-      const [nextProjects, nextProducts, nextRenderJobs] = await Promise.all([
-        listProjects(token),
-        listProducts(token),
-        listRenderJobs(token)
-      ]);
+      const [nextProjects, nextProducts, nextTemplates, nextKits, nextRenderJobs] =
+        await Promise.all([
+          listProjects(token),
+          listProducts(token),
+          listVideoTemplates(token),
+          listBrandKits(token),
+          listRenderJobs(token)
+        ]);
       setItems(nextProjects);
       setProducts(nextProducts);
+      setTemplates(nextTemplates);
+      setBrandKits(nextKits);
       setRenderJobs(nextRenderJobs);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Tải dữ liệu thất bại");
@@ -151,19 +166,25 @@ export function ProjectsManager() {
     setSaving(true);
     setError(null);
 
-    const payload = {
+    const basePayload = {
       title: form.title,
       productId: form.productId,
       templateId: form.templateId,
-      brandKitId: form.brandKitId || undefined,
       status: form.status
     };
 
     try {
       if (selectedId) {
-        await updateProject(token, selectedId, payload);
+        await updateProject(token, selectedId, {
+          ...basePayload,
+          brandKitId: form.brandKitId.trim() === "" ? null : form.brandKitId
+        });
       } else {
-        await createProject(token, payload);
+        const createPayload = {
+          ...basePayload,
+          ...(form.brandKitId.trim() === "" ? {} : { brandKitId: form.brandKitId })
+        };
+        await createProject(token, createPayload);
       }
 
       setSelectedId(null);
@@ -302,22 +323,41 @@ export function ProjectsManager() {
             </select>
           </label>
           <label className="field">
-            <span>Mã mẫu (template)</span>
-            <input
+            <span>Mẫu video</span>
+            <select
               value={form.templateId}
               onChange={(event) =>
                 setForm({ ...form, templateId: event.target.value })
               }
-            />
+            >
+              <option value="">Chọn mẫu</option>
+              {templates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name} ({template.channel}, {template.aspectRatio})
+                </option>
+              ))}
+            </select>
           </label>
+          {templates.length === 0 ? (
+            <div className="muted">
+              Chưa có mẫu nào. Tạo mẫu tại trang Mẫu video trước khi lưu dự án.
+            </div>
+          ) : null}
           <label className="field">
-            <span>Mã bộ nhận diện</span>
-            <input
+            <span>Bộ nhận diện (tuỳ chọn)</span>
+            <select
               value={form.brandKitId}
               onChange={(event) =>
                 setForm({ ...form, brandKitId: event.target.value })
               }
-            />
+            >
+              <option value="">Không dùng</option>
+              {brandKits.map((kit) => (
+                <option key={kit.id} value={kit.id}>
+                  {kit.name}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="field">
             <span>Trạng thái</span>
@@ -405,7 +445,9 @@ export function ProjectsManager() {
                 <tr key={item.id}>
                   <td>{item.title}</td>
                   <td>{products.find((product) => product.id === item.productId)?.sku ?? "-"}</td>
-                  <td>{item.templateId}</td>
+                  <td>
+                    {templates.find((t) => t.id === item.templateId)?.name ?? item.templateId}
+                  </td>
                   <td>
                     <StatusBadge value={item.status} />
                   </td>
@@ -459,7 +501,11 @@ export function ProjectsManager() {
               <div className="muted">
                 {products.find((item) => item.id === previewProject.productId)?.title ?? "-"}
               </div>
-              <div className="muted">Mẫu: {previewProject.templateId}</div>
+              <div className="muted">
+                Mẫu:{" "}
+                {templates.find((t) => t.id === previewProject.templateId)?.name ??
+                  previewProject.templateId}
+              </div>
             </div>
             {previewRender ? (
               <div className="stack">
