@@ -1091,26 +1091,46 @@ interface RequestOptions {
   method?: string;
   body?: BodyInit;
   token?: string;
+  /** Default 25s — avoids infinite "Đang tải phiên đăng nhập…" when API is down or unreachable */
+  timeoutMs?: number;
 }
 
 async function request<T>(path: string, options: RequestOptions = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: options.method ?? "GET",
-    headers: {
-      ...(options.token
-        ? {
-            authorization: `Bearer ${options.token}`
-          }
-        : {}),
-      ...(typeof options.body === "string"
-        ? {
-            "content-type": "application/json"
-          }
-        : {})
-    },
-    body: options.body,
-    cache: "no-store"
-  });
+  const timeoutMs = options.timeoutMs ?? 25_000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: options.method ?? "GET",
+      signal: controller.signal,
+      headers: {
+        ...(options.token
+          ? {
+              authorization: `Bearer ${options.token}`
+            }
+          : {}),
+        ...(typeof options.body === "string"
+          ? {
+              "content-type": "application/json"
+            }
+          : {})
+      },
+      body: options.body,
+      cache: "no-store"
+    });
+  } catch (e) {
+    const name = e instanceof Error ? e.name : "";
+    if (name === "AbortError") {
+      throw new Error(
+        `API không phản hồi trong ${timeoutMs / 1000}s. Kiểm tra API đang chạy cổng 4000 và NEXT_PUBLIC_API_BASE_URL (ví dụ http://<IP-LAN>:4000).`
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   const payload = (await response.json()) as T | { message: string };
 

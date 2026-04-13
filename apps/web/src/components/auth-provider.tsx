@@ -23,7 +23,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedToken = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const savedToken = raw?.trim() ?? "";
 
     if (!savedToken) {
       setLoading(false);
