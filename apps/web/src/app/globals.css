@@ -122,6 +122,19 @@ a {
   resize: vertical;
 }
 
+.field textarea.mono-textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.small-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
 .toolbar {
   display: grid;
   gap: 16px;

@@ -13,18 +13,52 @@ import {
 import { useAuth } from "./auth-provider";
 import { PageHeader } from "./page-header";
 
-const emptyForm = {
+type RenderProvider = NonNullable<VideoTemplateRecord["renderProvider"]>;
+
+const defaultVeoRenderConfig = {
+  promptTemplate: `{{projectTitle}}. Affiliate product showcase for "{{productTitle}}".
+Product details: {{productDescription}}
+
+Brand voice: {{brandName}}. Typography should feel like font family "{{fontFamily}}" with accent color {{primaryColor}}.
+Cinematic product video, stable camera, soft studio lighting, clean background, professional motion, no custom watermark.`,
+  referenceImages: {
+    enabled: true,
+    max: 3,
+    includeBrandLogo: true,
+    brandLogoFirst: true,
+    productImageOrder: "oldest" as const
+  },
+  veo: {
+    personGeneration: "allow_adult",
+    resolution: "720p"
+  }
+};
+
+const defaultVeoRenderConfigText = JSON.stringify(defaultVeoRenderConfig, null, 2);
+
+type TemplateFormState = {
+  name: string;
+  channel: string;
+  renderProvider: RenderProvider;
+  aspectRatio: string;
+  durationSeconds: string;
+  renderConfigJson: string;
+};
+
+const emptyForm: TemplateFormState = {
   name: "",
   channel: "tiktok",
+  renderProvider: "ffmpeg",
   aspectRatio: "9:16",
-  durationSeconds: "30"
+  durationSeconds: "30",
+  renderConfigJson: "{}"
 };
 
 export function VideoTemplatesManager() {
   const { token } = useAuth();
   const [items, setItems] = useState<VideoTemplateRecord[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState<TemplateFormState>(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,11 +80,19 @@ export function VideoTemplatesManager() {
       return;
     }
 
+    const rp = selectedItem.renderProvider ?? "ffmpeg";
+    const stored = selectedItem.renderConfigJson;
+    const hasConfig = stored && Object.keys(stored).length > 0;
+    const configObj =
+      rp === "veo3" && !hasConfig ? defaultVeoRenderConfig : (stored ?? {});
+
     setForm({
       name: selectedItem.name,
       channel: selectedItem.channel,
+      renderProvider: rp,
       aspectRatio: selectedItem.aspectRatio,
-      durationSeconds: String(selectedItem.durationSeconds)
+      durationSeconds: String(selectedItem.durationSeconds),
+      renderConfigJson: JSON.stringify(configObj, null, 2)
     });
   }, [selectedItem]);
 
@@ -81,11 +123,30 @@ export function VideoTemplatesManager() {
     setSaving(true);
     setError(null);
 
+    let renderConfigJson: Record<string, unknown> = {};
+    if (form.renderProvider === "veo3") {
+      try {
+        const parsed: unknown = JSON.parse(form.renderConfigJson || "{}");
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          setError("Cấu hình render (JSON) phải là một object.");
+          setSaving(false);
+          return;
+        }
+        renderConfigJson = parsed as Record<string, unknown>;
+      } catch {
+        setError("Cấu hình render (JSON) không hợp lệ.");
+        setSaving(false);
+        return;
+      }
+    }
+
     const payload = {
       name: form.name,
       channel: form.channel,
+      renderProvider: form.renderProvider,
       aspectRatio: form.aspectRatio,
-      durationSeconds: Number(form.durationSeconds)
+      durationSeconds: Number(form.durationSeconds),
+      renderConfigJson: form.renderProvider === "veo3" ? renderConfigJson : {}
     };
 
     try {
@@ -155,6 +216,48 @@ export function VideoTemplatesManager() {
               <option value="facebook">Facebook</option>
             </select>
           </label>
+          <label className="field">
+            <span>Render provider</span>
+            <select
+              value={form.renderProvider}
+              onChange={(event) => {
+                const next = event.target.value as RenderProvider;
+                setForm((prev) => ({
+                  ...prev,
+                  renderProvider: next,
+                  renderConfigJson:
+                    next === "veo3" && (prev.renderConfigJson.trim() === "" || prev.renderConfigJson.trim() === "{}")
+                      ? defaultVeoRenderConfigText
+                      : next === "ffmpeg"
+                        ? "{}"
+                        : prev.renderConfigJson
+                }));
+              }}
+            >
+              <option value="ffmpeg">FFmpeg (slideshow)</option>
+              <option value="veo3">Veo3 (AI)</option>
+            </select>
+          </label>
+          {form.renderProvider === "veo3" ? (
+            <label className="field">
+              <span>render_config_json (Veo 3.1)</span>
+              <textarea
+                className="mono-textarea"
+                rows={16}
+                spellCheck={false}
+                value={form.renderConfigJson}
+                onChange={(event) => setForm({ ...form, renderConfigJson: event.target.value })}
+              />
+              <span className="muted small-hint">
+                Placeholder prompt:{" "}
+                <code>
+                  {`{{projectTitle}} {{productTitle}} {{productDescription}} {{productSku}} {{brandName}} {{primaryColor}} {{fontFamily}}`}
+                </code>
+                . Reference images: tối đa 3 (ảnh sản phẩm + logo brand kit). Đặt{" "}
+                <code>referenceImages.require: true</code> nếu bắt buộc phải có ảnh.
+              </span>
+            </label>
+          ) : null}
           <label className="field">
             <span>Tỉ lệ khung hình</span>
             <input

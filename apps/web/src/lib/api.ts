@@ -89,6 +89,8 @@ export interface VideoTemplateRecord {
   tenantId: string;
   name: string;
   channel: string;
+  renderProvider?: "ffmpeg" | "veo3";
+  renderConfigJson?: Record<string, unknown>;
   aspectRatio: string;
   durationSeconds: number;
 }
@@ -664,6 +666,40 @@ export async function refreshChannelAccount(token: string, id: string) {
 
 export async function listChannelCapabilities(token: string) {
   return request<ChannelCapabilityRecord[]>("/channel-capabilities", { token });
+}
+
+export interface AiProviderRecord {
+  provider: "veo3";
+  configured: boolean;
+  baseUrl: string;
+  model: string;
+  apiKeyFingerprint?: string;
+}
+
+export async function listAiProviders(token: string) {
+  return request<AiProviderRecord[]>("/ai-providers", { token });
+}
+
+export async function upsertAiProvider(
+  token: string,
+  provider: AiProviderRecord["provider"],
+  input: { apiKey?: string; baseUrl?: string; model?: string }
+) {
+  return request<AiProviderRecord>(`/ai-providers/${provider}`, {
+    method: "PUT",
+    token,
+    body: JSON.stringify(input)
+  });
+}
+
+export async function testAiProvider(token: string, provider: AiProviderRecord["provider"]) {
+  return request<{ ok: boolean; provider?: string; model?: string; message?: string; details?: string }>(
+    `/ai-providers/${provider}/test`,
+    {
+      method: "POST",
+      token
+    }
+  );
 }
 
 export async function upsertChannelCapability(

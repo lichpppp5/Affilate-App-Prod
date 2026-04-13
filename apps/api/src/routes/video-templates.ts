@@ -5,12 +5,15 @@ import { createId } from "../lib/ids";
 import { requirePermission } from "../rbac";
 
 type Channel = "tiktok" | "shopee" | "facebook";
+type RenderProvider = "ffmpeg" | "veo3";
 
 interface VideoTemplateRow {
   id: string;
   tenant_id: string;
   name: string;
   channel: string;
+  render_provider: string;
+  render_config_json: string;
   aspect_ratio: string;
   duration_seconds: number;
 }
@@ -18,6 +21,8 @@ interface VideoTemplateRow {
 interface VideoTemplateInput {
   name?: string;
   channel?: string;
+  renderProvider?: string;
+  renderConfigJson?: Record<string, unknown>;
   aspectRatio?: string;
   durationSeconds?: number;
 }
@@ -30,7 +35,7 @@ export async function listVideoTemplates(session: AuthSession) {
 
   const result = await query<VideoTemplateRow>(
     `
-      select id, tenant_id, name, channel, aspect_ratio, duration_seconds
+      select id, tenant_id, name, channel, render_provider, render_config_json, aspect_ratio, duration_seconds
       from video_templates
       where tenant_id = $1
       order by name asc
@@ -52,7 +57,7 @@ export async function getVideoTemplate(session: AuthSession, id: string) {
 
   const result = await query<VideoTemplateRow>(
     `
-      select id, tenant_id, name, channel, aspect_ratio, duration_seconds
+      select id, tenant_id, name, channel, render_provider, render_config_json, aspect_ratio, duration_seconds
       from video_templates
       where tenant_id = $1 and id = $2
     `,
@@ -87,17 +92,21 @@ export async function createVideoTemplate(session: AuthSession, body: VideoTempl
         tenant_id,
         name,
         channel,
+        render_provider,
+        render_config_json,
         aspect_ratio,
         duration_seconds
       )
-      values ($1, $2, $3, $4, $5, $6)
-      returning id, tenant_id, name, channel, aspect_ratio, duration_seconds
+      values ($1, $2, $3, $4, $5, $6, $7, $8)
+      returning id, tenant_id, name, channel, render_provider, render_config_json, aspect_ratio, duration_seconds
     `,
     [
       id,
       session.tenantId,
       body.name.trim(),
       body.channel,
+      isRenderProvider(body.renderProvider) ? body.renderProvider : "ffmpeg",
+      JSON.stringify(body.renderConfigJson ?? {}),
       body.aspectRatio?.trim() || "9:16",
       body.durationSeconds != null && Number.isFinite(body.durationSeconds)
         ? Math.max(1, Math.floor(body.durationSeconds))
@@ -131,7 +140,7 @@ export async function updateVideoTemplate(
 
   const existing = await query<VideoTemplateRow>(
     `
-      select id, tenant_id, name, channel, aspect_ratio, duration_seconds
+      select id, tenant_id, name, channel, render_provider, render_config_json, aspect_ratio, duration_seconds
       from video_templates
       where tenant_id = $1 and id = $2
     `,
@@ -148,22 +157,31 @@ export async function updateVideoTemplate(
     return invalid("channel must be tiktok, shopee, or facebook");
   }
 
+  const nextProvider = body.renderProvider ?? current.render_provider;
+  if (!isRenderProvider(nextProvider)) {
+    return invalid("renderProvider must be ffmpeg or veo3");
+  }
+
   const result = await query<VideoTemplateRow>(
     `
       update video_templates
       set name = $3,
           channel = $4,
-          aspect_ratio = $5,
-          duration_seconds = $6,
+          render_provider = $5,
+          render_config_json = $6,
+          aspect_ratio = $7,
+          duration_seconds = $8,
           updated_at = now()
       where tenant_id = $1 and id = $2
-      returning id, tenant_id, name, channel, aspect_ratio, duration_seconds
+      returning id, tenant_id, name, channel, render_provider, render_config_json, aspect_ratio, duration_seconds
     `,
     [
       session.tenantId,
       id,
       body.name?.trim() || current.name,
       nextChannel,
+      nextProvider,
+      body.renderConfigJson ? JSON.stringify(body.renderConfigJson) : current.render_config_json,
       body.aspectRatio?.trim() || current.aspect_ratio,
       body.durationSeconds != null && Number.isFinite(body.durationSeconds)
         ? Math.max(1, Math.floor(body.durationSeconds))
@@ -220,15 +238,30 @@ function isChannel(value: string | undefined): value is Channel {
   return value === "tiktok" || value === "shopee" || value === "facebook";
 }
 
+function isRenderProvider(value: string | undefined): value is RenderProvider {
+  return value === "ffmpeg" || value === "veo3";
+}
+
 function mapRow(row: VideoTemplateRow) {
   return {
     id: row.id,
     tenantId: row.tenant_id,
     name: row.name,
     channel: row.channel,
+    renderProvider: row.render_provider,
+    renderConfigJson: safeJson(row.render_config_json),
     aspectRatio: row.aspect_ratio,
     durationSeconds: row.duration_seconds
   };
+}
+
+function safeJson(input: string) {
+  try {
+    const value = JSON.parse(input || "{}");
+    return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
 }
 
 function invalid(message: string) {

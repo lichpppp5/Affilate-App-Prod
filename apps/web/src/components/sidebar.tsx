@@ -15,6 +15,7 @@ const items: { href: string; label: string; permission: string }[] = [
     label: "Năng lực kênh",
     permission: "channels:read"
   },
+  { href: "/ai-providers", label: "AI Providers", permission: "channels:read" },
   { href: "/product-mappings", label: "Mapping sản phẩm", permission: "publish:read" },
   { href: "/users", label: "Người dùng", permission: "users:read" },
   { href: "/tenants", label: "Tenants", permission: "tenants:read" },

@@ -229,6 +229,8 @@ create table if not exists video_templates (
   tenant_id text not null references tenants(id) on delete cascade,
   name text not null,
   channel text not null check (channel in ('tiktok', 'shopee', 'facebook')),
+  render_provider text not null default 'ffmpeg' check (render_provider in ('ffmpeg', 'veo3')),
+  render_config_json text not null default '{}',
   aspect_ratio text not null default '9:16',
   duration_seconds int not null default 30,
   created_at timestamptz not null default now(),
@@ -237,6 +239,19 @@ create table if not exists video_templates (
 );
 
 create index if not exists idx_video_templates_tenant on video_templates(tenant_id);
+
+create table if not exists ai_provider_credentials (
+  tenant_id text not null references tenants(id) on delete cascade,
+  provider text not null,
+  api_key_encrypted text not null default '',
+  base_url text not null default 'https://generativelanguage.googleapis.com/v1beta',
+  model text not null default 'veo-3.1-generate-preview',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (tenant_id, provider)
+);
+
+create index if not exists idx_ai_provider_credentials_tenant on ai_provider_credentials(tenant_id);
 
 create table if not exists brand_kits (
   id text primary key,

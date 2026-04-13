@@ -136,6 +136,7 @@ import {
   listRenderJobs,
   retryRenderJob
 } from "./routes/render";
+import { listAiProviders, testAiProvider, upsertAiProvider } from "./routes/ai-providers";
 import { getReportsSnapshot } from "./routes/reports";
 
 const config = loadConfig();
@@ -489,6 +490,12 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
       return;
     }
 
+    if (method === "GET" && pathname === "/ai-providers") {
+      const result = await listAiProviders(session);
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
     if (method === "GET" && pathname === "/product-channel-mappings") {
       const result = await listProductChannelMappings(
         session,
@@ -661,6 +668,20 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
         channelCapabilityChannel,
         await readJsonBody(request)
       );
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    const aiProviderAction = matchResourceAction(pathname, "/ai-providers/");
+    if (aiProviderAction && aiProviderAction.action === "test" && method === "POST") {
+      const result = await testAiProvider(session, aiProviderAction.id);
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    const aiProviderId = matchResource(pathname, "/ai-providers/");
+    if (aiProviderId && method === "PUT") {
+      const result = await upsertAiProvider(session, aiProviderId, await readJsonBody(request));
       sendJson(response, result.statusCode, result.payload);
       return;
     }

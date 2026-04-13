@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { createDecipheriv, createHash, randomUUID } from "node:crypto";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -18,6 +18,13 @@ import {
   refreshWorkerProviderToken,
   type WorkerProviderName
 } from "./providers";
+import {
+  DEFAULT_VEO_PROMPT_TEMPLATE,
+  interpolatePromptTemplate,
+  parseVeoRenderConfig,
+  pickVeoReferenceImages,
+  type ReferenceImageInput
+} from "./veo-render-config";
 
 const DATABASE_URL =
   process.env.DATABASE_URL ??
@@ -269,20 +276,187 @@ async function processRenderJob(job: {
     const outputVideoPath = resolve(GENERATED_MEDIA_DIR, `${job.project_id}.mp4`);
     const outputThumbnailPath = resolve(GENERATED_MEDIA_DIR, `${job.project_id}.jpg`);
 
-    await runFfmpeg([
-      "-y",
-      "-f",
-      "lavfi",
-      "-i",
-      "color=c=0x1d4ed8:s=1080x1920:d=2",
-      "-f",
-      "lavfi",
-      "-i",
-      "color=c=0x111827:s=1080x1920:d=2",
-      "-filter_complex",
-      "[0:v][1:v]concat=n=2:v=1:a=0,format=yuv420p",
-      outputVideoPath
-    ]);
+    const context = await pool.query<{
+      template_id: string;
+      product_id: string;
+      brand_kit_id: string | null;
+      project_title: string;
+      product_title: string;
+      product_description: string;
+      product_sku: string;
+      brand_name: string | null;
+      brand_primary_color: string | null;
+      brand_font_family: string | null;
+      brand_logo_asset_id: string | null;
+      template_render_provider: string | null;
+      template_render_config_json: string | null;
+      template_aspect_ratio: string | null;
+      template_duration_seconds: number | null;
+    }>(
+      `
+        select
+          vp.template_id,
+          vp.product_id,
+          vp.brand_kit_id,
+          vp.title as project_title,
+          p.title as product_title,
+          p.description as product_description,
+          p.sku as product_sku,
+          bk.name as brand_name,
+          bk.primary_color as brand_primary_color,
+          bk.font_family as brand_font_family,
+          nullif(trim(bk.logo_asset_id), '') as brand_logo_asset_id,
+          vt.render_provider as template_render_provider,
+          vt.render_config_json as template_render_config_json,
+          vt.aspect_ratio as template_aspect_ratio,
+          vt.duration_seconds as template_duration_seconds
+        from video_projects vp
+        join products p
+          on p.tenant_id = vp.tenant_id and p.id = vp.product_id
+        left join brand_kits bk
+          on bk.tenant_id = vp.tenant_id and bk.id = vp.brand_kit_id
+        left join video_templates vt
+          on vt.tenant_id = vp.tenant_id and vt.id = vp.template_id
+        where vp.tenant_id = $1 and vp.id = $2
+        limit 1
+      `,
+      [job.tenant_id, job.project_id]
+    );
+
+    const row = context.rows[0];
+    const renderProvider = row?.template_render_provider ?? "ffmpeg";
+    const aspectRatio = row?.template_aspect_ratio ?? "9:16";
+    const durationSeconds = Math.max(4, Number(row?.template_duration_seconds ?? 8));
+    const size = aspectRatio === "1:1" ? "1080x1080" : aspectRatio === "16:9" ? "1920x1080" : "1080x1920";
+
+    // Pull product images. If files are missing (seed/demo), fallback to color clips.
+    const images = row
+      ? await pool.query<{ storage_key: string; mime_type: string }>(
+          `
+            select storage_key, mime_type
+            from assets
+            where tenant_id = $1
+              and product_id = $2
+              and kind = 'image'
+            order by created_at asc
+            limit 6
+          `,
+          [job.tenant_id, row.product_id]
+        )
+      : { rows: [] as { storage_key: string; mime_type: string }[] };
+
+    const objectStorageDir = resolveRepoRootPath(
+      process.env.OBJECT_STORAGE_LOCAL_DIR ?? "./apps/api/object-storage"
+    );
+
+    const imagePaths: string[] = [];
+    const productImageInputs: ReferenceImageInput[] = [];
+    for (const img of images.rows) {
+      const p = resolve(objectStorageDir, img.storage_key);
+      if (await existsFile(p)) {
+        imagePaths.push(p);
+        productImageInputs.push({
+          absolutePath: p,
+          mimeType: img.mime_type?.trim() || "image/jpeg"
+        });
+      }
+    }
+
+    if (renderProvider === "veo3") {
+      const veoCfg = parseVeoRenderConfig(row?.template_render_config_json);
+      let brandLogo: ReferenceImageInput | null = null;
+      const logoId = row?.brand_logo_asset_id?.trim();
+      if (logoId) {
+        const logoRow = await pool.query<{ storage_key: string; mime_type: string }>(
+          `
+            select storage_key, mime_type
+            from assets
+            where tenant_id = $1 and id = $2
+            limit 1
+          `,
+          [job.tenant_id, logoId]
+        );
+        const la = logoRow.rows[0];
+        if (la) {
+          const lp = resolve(objectStorageDir, la.storage_key);
+          if (await existsFile(lp)) {
+            brandLogo = {
+              absolutePath: lp,
+              mimeType: la.mime_type?.trim() || "image/png"
+            };
+          }
+        }
+      }
+
+      const vars: Record<string, string> = {
+        projectTitle: row?.project_title ?? "",
+        productTitle: row?.product_title ?? "",
+        productDescription: (row?.product_description ?? "").slice(0, 2000),
+        productSku: row?.product_sku ?? "",
+        brandName: row?.brand_name ?? "",
+        primaryColor: row?.brand_primary_color ?? "",
+        fontFamily: row?.brand_font_family ?? ""
+      };
+
+      const template = veoCfg.promptTemplate?.trim() || DEFAULT_VEO_PROMPT_TEMPLATE;
+      const prompt = interpolatePromptTemplate(template, vars).trim();
+
+      const pickedRefs = pickVeoReferenceImages({
+        config: veoCfg,
+        productImages: productImageInputs,
+        brandLogo
+      });
+
+      if (veoCfg.referenceImages?.require && pickedRefs.length === 0) {
+        throw new Error("Veo3: reference images are required but none were available on disk");
+      }
+
+      await renderWithVeo3({
+        tenantId: job.tenant_id,
+        prompt: prompt || vars.projectTitle || "Product video",
+        aspectRatio,
+        templateDurationSeconds: durationSeconds,
+        referenceImages: pickedRefs,
+        veoOverrides: veoCfg.veo ?? {},
+        outputVideoPath
+      });
+    } else if (imagePaths.length === 0) {
+      await runFfmpeg([
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        `color=c=0x1d4ed8:s=${size}:d=${Math.max(2, Math.floor(durationSeconds / 2))}`,
+        "-f",
+        "lavfi",
+        "-i",
+        `color=c=0x111827:s=${size}:d=${Math.max(2, Math.ceil(durationSeconds / 2))}`,
+        "-filter_complex",
+        "[0:v][1:v]concat=n=2:v=1:a=0,format=yuv420p",
+        outputVideoPath
+      ]);
+    } else {
+      const perSlide = Math.max(1.5, durationSeconds / imagePaths.length);
+      const args: string[] = ["-y"];
+      for (const p of imagePaths) {
+        args.push("-loop", "1", "-t", String(perSlide), "-i", p);
+      }
+
+      const chains: string[] = [];
+      const refs: string[] = [];
+      for (let i = 0; i < imagePaths.length; i += 1) {
+        // cover-fit into target size
+        chains.push(
+          `[${i}:v]scale=${size}:force_original_aspect_ratio=increase,crop=${size},format=yuv420p[v${i}]`
+        );
+        refs.push(`[v${i}]`);
+      }
+
+      chains.push(`${refs.join("")}concat=n=${imagePaths.length}:v=1:a=0,format=yuv420p[v]`);
+      args.push("-filter_complex", chains.join(";"), "-map", "[v]", "-r", "30", "-movflags", "+faststart", outputVideoPath);
+
+      await runFfmpeg(args);
+    }
 
     if (await isJobCanceled("render_jobs", job.id)) {
       await markRenderCanceled(job);
@@ -365,6 +539,196 @@ async function processRenderJob(job: {
       refId: job.id
     });
   }
+}
+
+function templateDurationToVeoSlot(seconds: number): "4" | "6" | "8" {
+  const s = Math.round(seconds);
+  if (s <= 4) return "4";
+  if (s <= 6) return "6";
+  return "8";
+}
+
+function veoAspectRatioParam(ratio: string): "9:16" | "16:9" {
+  return ratio === "16:9" ? "16:9" : "9:16";
+}
+
+async function renderWithVeo3(input: {
+  tenantId: string;
+  prompt: string;
+  aspectRatio: string;
+  templateDurationSeconds: number;
+  referenceImages: ReferenceImageInput[];
+  veoOverrides: {
+    personGeneration?: string;
+    resolution?: string;
+    durationSeconds?: string;
+  };
+  outputVideoPath: string;
+}) {
+  const creds = await pool.query<{
+    api_key_encrypted: string;
+    base_url: string;
+    model: string;
+  }>(
+    `
+      select api_key_encrypted, base_url, model
+      from ai_provider_credentials
+      where tenant_id = $1 and provider = 'veo3'
+      limit 1
+    `,
+    [input.tenantId]
+  );
+
+  const row = creds.rows[0];
+  if (!row?.api_key_encrypted?.trim()) {
+    throw new Error("Veo3 is not configured: missing API key");
+  }
+
+  const apiKey = decryptSecret(process.env.AUTH_SECRET ?? "dev-auth-secret", row.api_key_encrypted);
+  const baseUrl = row.base_url?.trim() || "https://generativelanguage.googleapis.com/v1beta";
+  const model = row.model?.trim() || "veo-3.1-generate-preview";
+
+  const hasRefs = input.referenceImages.length > 0;
+  const durationParam = hasRefs
+    ? "8"
+    : input.veoOverrides.durationSeconds === "4" ||
+        input.veoOverrides.durationSeconds === "6" ||
+        input.veoOverrides.durationSeconds === "8"
+      ? input.veoOverrides.durationSeconds
+      : templateDurationToVeoSlot(input.templateDurationSeconds);
+
+  const personGeneration = hasRefs
+    ? input.veoOverrides.personGeneration ?? "allow_adult"
+    : input.veoOverrides.personGeneration ?? "allow_all";
+
+  const instance: Record<string, unknown> = {
+    prompt: input.prompt
+  };
+
+  if (hasRefs) {
+    const referenceImages = [];
+    for (const ref of input.referenceImages) {
+      const buf = await readFile(ref.absolutePath);
+      referenceImages.push({
+        image: {
+          inlineData: {
+            mimeType: ref.mimeType,
+            data: buf.toString("base64")
+          }
+        },
+        referenceType: "asset"
+      });
+    }
+    instance.referenceImages = referenceImages;
+  }
+
+  const reqBody: Record<string, unknown> = {
+    instances: [instance],
+    parameters: {
+      aspectRatio: veoAspectRatioParam(input.aspectRatio),
+      durationSeconds: durationParam,
+      personGeneration,
+      ...(input.veoOverrides.resolution ? { resolution: input.veoOverrides.resolution } : {})
+    }
+  };
+
+  const start = await fetch(`${baseUrl}/models/${encodeURIComponent(model)}:predictLongRunning`, {
+    method: "POST",
+    headers: {
+      "x-goog-api-key": apiKey,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(reqBody)
+  });
+
+  if (!start.ok) {
+    const text = await start.text().catch(() => "");
+    throw new Error(`Veo3 start failed: HTTP ${start.status} ${text.slice(0, 200)}`);
+  }
+
+  const startJson = (await start.json()) as { name?: string };
+  if (!startJson.name) {
+    throw new Error("Veo3 start failed: missing operation name");
+  }
+
+  const opName = startJson.name;
+  const deadline = Date.now() + 10 * 60_000;
+
+  while (true) {
+    if (Date.now() > deadline) {
+      throw new Error("Veo3 generation timed out");
+    }
+
+    await sleep(8000);
+    const status = await fetch(`${baseUrl}/${opName}`, {
+      headers: { "x-goog-api-key": apiKey }
+    });
+
+    if (!status.ok) {
+      const text = await status.text().catch(() => "");
+      throw new Error(`Veo3 status failed: HTTP ${status.status} ${text.slice(0, 200)}`);
+    }
+
+    const statusJson = (await status.json()) as any;
+    if (!statusJson?.done) continue;
+
+    const videoUri =
+      statusJson?.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
+    if (!videoUri || typeof videoUri !== "string") {
+      throw new Error("Veo3 done but missing video uri");
+    }
+
+    const videoRes = await fetch(videoUri, { headers: { "x-goog-api-key": apiKey } });
+    if (!videoRes.ok) {
+      const text = await videoRes.text().catch(() => "");
+      throw new Error(`Veo3 download failed: HTTP ${videoRes.status} ${text.slice(0, 200)}`);
+    }
+
+    const buf = Buffer.from(await videoRes.arrayBuffer());
+    await writeFile(input.outputVideoPath, buf);
+    break;
+  }
+}
+
+function decryptSecret(secretKey: string, encoded: string) {
+  if (!encoded) return "";
+  const parts = encoded.split(".");
+  if (parts.length !== 5 || parts[0] !== "v1") {
+    return encoded;
+  }
+
+  const [, ivB64, tagB64, ciphertextB64] = parts;
+  const iv = Buffer.from(ivB64, "base64url");
+  const tag = Buffer.from(tagB64, "base64url");
+  const ciphertext = Buffer.from(ciphertextB64, "base64url");
+  const key = createHash("sha256").update(secretKey).digest();
+
+  const decipher = createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(tag);
+  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  return plaintext.toString("utf8");
+}
+
+async function existsFile(path: string) {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveRepoRootPath(input: string) {
+  if (!input.trim()) {
+    return resolve(process.cwd(), "..", "api", "object-storage");
+  }
+
+  // Worker runs from apps/worker; repo root is two levels up.
+  if (input.startsWith("./")) {
+    return resolve(process.cwd(), "..", "..", input.slice(2));
+  }
+
+  return resolve(input);
 }
 
 async function claimNextPublishJob() {
