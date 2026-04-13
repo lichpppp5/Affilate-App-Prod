@@ -14,11 +14,29 @@ fi
 
 APP_DIR="/opt/appaffilate"
 REPO_URL="https://github.com/lichpppp5/Affilate-App-Prod.git"
+APP_HOME="$(getent passwd "${APP_USER}" | cut -d: -f6)"
 
 echo "== AppAffilate on-prem installer (Ubuntu 24.04) =="
 echo "- user: ${APP_USER}"
+echo "- home: ${APP_HOME}"
 echo "- dir:  ${APP_DIR}"
 echo
+
+# nvm is a shell function; ~/.bashrc often returns immediately for non-interactive shells,
+# so never rely on "source ~/.bashrc" in su/systemd — always source nvm.sh directly.
+with_nvm() {
+  local cmd="$1"
+  su - "${APP_USER}" -c "bash -euo pipefail -c \"
+export NVM_DIR='${APP_HOME}/.nvm'
+if [[ ! -s \\\"\\\$NVM_DIR/nvm.sh\\\" ]]; then
+  echo 'nvm is not installed (run installer step 3 first).' >&2
+  exit 1
+fi
+source \\\"\\\$NVM_DIR/nvm.sh\\\"
+cd '${APP_DIR}'
+${cmd}
+\""
+}
 
 echo "Step 1/8: Install base packages"
 apt-get update -y
@@ -44,17 +62,24 @@ systemctl enable --now docker
 usermod -aG docker "${APP_USER}"
 
 echo "Step 3/8: Install Node.js 20 via nvm (for ${APP_USER})"
-su - "${APP_USER}" -c "bash -lc 'command -v nvm >/dev/null 2>&1 || curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash'"
-su - "${APP_USER}" -c "bash -lc 'source ~/.bashrc && nvm install 20 && nvm use 20'"
+su - "${APP_USER}" -c "bash -euo pipefail -c \"
+export NVM_DIR='${APP_HOME}/.nvm'
+if [[ ! -s \\\"\\\$NVM_DIR/nvm.sh\\\" ]]; then
+  curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+fi
+source \\\"\\\$NVM_DIR/nvm.sh\\\"
+nvm install 20
+nvm use 20
+\""
 
 echo "Step 4/8: Clone or update repository"
 if [[ -d "${APP_DIR}/.git" ]]; then
-  su - "${APP_USER}" -c "bash -lc 'cd \"${APP_DIR}\" && git pull'"
+  su - "${APP_USER}" -c "bash -euo pipefail -c 'cd \"${APP_DIR}\" && git pull'"
 else
   rm -rf "${APP_DIR}"
   mkdir -p "${APP_DIR}"
   chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
-  su - "${APP_USER}" -c "bash -lc 'git clone \"${REPO_URL}\" \"${APP_DIR}\"'"
+  su - "${APP_USER}" -c "bash -euo pipefail -c 'git clone \"${REPO_URL}\" \"${APP_DIR}\"'"
 fi
 
 echo "Step 5/8: Configure .env (LAN IP + URLs)"
@@ -85,11 +110,11 @@ set_kv "WEB_BASE_URL" "http://${LAN_IP}:3000"
 set_kv "NEXT_PUBLIC_API_BASE_URL" "http://${LAN_IP}:4000"
 
 echo "Step 6/8: Install npm dependencies"
-su - "${APP_USER}" -c "bash -lc 'cd \"${APP_DIR}\" && npm install'"
+with_nvm "npm install"
 
 echo "Step 7/8: Start infra + migrate + seed demo"
-su - "${APP_USER}" -c "bash -lc 'cd \"${APP_DIR}\" && npm run infra:up'"
-su - "${APP_USER}" -c "bash -lc 'cd \"${APP_DIR}\" && npm run db:reset-demo'"
+with_nvm "npm run infra:up"
+with_nvm "npm run db:reset-demo"
 
 echo "Step 8/8: Create systemd service (auto-start)"
 SERVICE_PATH="/etc/systemd/system/appaffilate.service"
@@ -104,7 +129,7 @@ Type=simple
 User=${APP_USER}
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${ENV_PATH}
-ExecStart=/usr/bin/env bash -lc 'source ~/.bashrc && cd "${APP_DIR}" && npm run dev:all'
+ExecStart=/bin/bash -c 'set -euo pipefail; export NVM_DIR="${APP_HOME}/.nvm"; source "$NVM_DIR/nvm.sh"; cd "${APP_DIR}"; exec npm run dev:all'
 Restart=always
 RestartSec=3
 TimeoutStartSec=0

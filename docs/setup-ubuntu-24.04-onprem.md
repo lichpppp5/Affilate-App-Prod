@@ -25,7 +25,7 @@ sudo ./install.sh
 
 Script sẽ:
 - Cài Docker Engine + docker compose plugin
-- Cài Node.js 20 (qua nvm) cho user hiện tại
+- Cài Node.js 20 (qua nvm) cho user hiện tại — script **luôn `source ~/.nvm/nvm.sh`**, không dùng `source ~/.bashrc` (vì `.bashrc` thường thoát ngay với shell không tương tác, khiến `nvm` không tồn tại).
 - Clone repo vào `/opt/appaffilate`
 - Tạo `.env` từ `.env.example` và điền URL theo LAN IP
 - Chạy `npm install`, `npm run infra:up`, `npm run db:reset-demo`
