@@ -50,8 +50,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function loginWithPassword(input: LoginInput) {
     setLoading(true);
-    const result = await login(input);
-    await hydrateSession(result.token);
+    try {
+      const result = await login(input);
+      await hydrateSession(result.token);
+    } finally {
+      // hydrateSession() already clears loading on success/failure, but if login()
+      // fails before we reach hydrateSession, we must clear loading here.
+      setLoading(false);
+    }
   }
 
   function logout() {

@@ -26,7 +26,13 @@ export type Permission =
   | "channels:delete"
   | "render:read"
   | "render:write"
-  | "render:operate";
+  | "render:operate"
+  | "users:read"
+  | "users:write"
+  | "users:delete"
+  | "tenants:read"
+  | "tenants:write"
+  | "tenants:delete";
 
 const ROLE_PERMISSIONS: Record<string, readonly Permission[]> = {
   org_admin: [],
@@ -133,7 +139,13 @@ export function listPermissions(roleName: string): Permission[] {
       "channels:delete",
       "render:read",
       "render:write",
-      "render:operate"
+      "render:operate",
+      "users:read",
+      "users:write",
+      "users:delete",
+      "tenants:read",
+      "tenants:write",
+      "tenants:delete"
     ];
   }
 

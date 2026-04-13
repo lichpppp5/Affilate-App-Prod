@@ -63,6 +63,14 @@ import {
   listPublishWebhookEvents,
   simulatePublishWebhook
 } from "./routes/publish-events";
+import {
+  createUser,
+  deleteUser,
+  listUsers,
+  resetUserPassword,
+  updateUser
+} from "./routes/users";
+import { createTenant, deleteTenant, listTenants, updateTenant } from "./routes/tenants";
 import { ingestProviderWebhook } from "./routes/provider-webhooks";
 import {
   buildMockAuthorizeRedirect,
@@ -293,6 +301,30 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
           ? Number(requestUrl.searchParams.get("offset"))
           : undefined
       });
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    if (method === "GET" && pathname === "/users") {
+      const result = await listUsers(session);
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    if (method === "POST" && pathname === "/users") {
+      const result = await createUser(session, await readJsonBody(request));
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    if (method === "GET" && pathname === "/tenants") {
+      const result = await listTenants(session);
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    if (method === "POST" && pathname === "/tenants") {
+      const result = await createTenant(session, await readJsonBody(request));
       sendJson(response, result.statusCode, result.payload);
       return;
     }
@@ -650,6 +682,49 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
       return;
     }
 
+    const userAction = matchResourceAction(pathname, "/users/");
+    if (userAction && userAction.action === "reset-password" && method === "POST") {
+      const result = await resetUserPassword(session, userAction.id, await readJsonBody(request));
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    const userId = matchResource(pathname, "/users/");
+    if (userId) {
+      if (method === "PUT") {
+        const result = await updateUser(session, userId, await readJsonBody(request));
+        sendJson(response, result.statusCode, result.payload);
+        return;
+      }
+
+      if (method === "DELETE") {
+        const result = await deleteUser(session, userId);
+        sendJson(response, result.statusCode, result.payload);
+        return;
+      }
+
+      sendJson(response, 405, { message: "Method not allowed" });
+      return;
+    }
+
+    const tenantId = matchResource(pathname, "/tenants/");
+    if (tenantId) {
+      if (method === "PUT") {
+        const result = await updateTenant(session, tenantId, await readJsonBody(request));
+        sendJson(response, result.statusCode, result.payload);
+        return;
+      }
+
+      if (method === "DELETE") {
+        const result = await deleteTenant(session, tenantId);
+        sendJson(response, result.statusCode, result.payload);
+        return;
+      }
+
+      sendJson(response, 405, { message: "Method not allowed" });
+      return;
+    }
+
     const publishAction = matchResourceAction(pathname, "/publish-jobs/");
     if (publishAction) {
       await handlePublishActionResource(
@@ -897,6 +972,7 @@ async function handleComplianceItemResource(
 
   sendJson(response, 405, { message: "Method not allowed" });
 }
+
 
 async function handleProductChannelMappingResource(
   request: IncomingMessage,

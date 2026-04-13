@@ -13,6 +13,21 @@ export function sessionCan(session: Session | null, permission: string) {
   return Boolean(session?.permissions?.includes(permission));
 }
 
+export interface UserRecord {
+  id: string;
+  email: string;
+  displayName: string;
+  roleName: string;
+  createdAt?: string;
+}
+
+export interface TenantRecord {
+  id: string;
+  name: string;
+  timezone: string;
+  createdAt?: string;
+}
+
 export interface ProductRecord {
   id: string;
   tenantId: string;
@@ -360,6 +375,110 @@ export async function markNotificationRead(token: string, id: string) {
 export async function markAllNotificationsRead(token: string) {
   return request<{ ok: boolean }>("/notifications/mark-all-read", {
     method: "POST",
+    token
+  });
+}
+
+export async function listUsers(token: string) {
+  return request<UserRecord[]>("/users", { token });
+}
+
+export async function createUser(
+  token: string,
+  input: {
+    email: string;
+    displayName: string;
+    roleName: string;
+    password?: string;
+  }
+) {
+  return request<
+    UserRecord & {
+      generatedPassword?: string;
+    }
+  >("/users", {
+    method: "POST",
+    token,
+    body: JSON.stringify(input)
+  });
+}
+
+export async function updateUser(
+  token: string,
+  id: string,
+  input: { displayName?: string; roleName?: string }
+) {
+  return request<UserRecord>(`/users/${id}`, {
+    method: "PUT",
+    token,
+    body: JSON.stringify(input)
+  });
+}
+
+export async function deleteUser(token: string, id: string) {
+  return request<{ deleted: boolean; id: string }>(`/users/${id}`, {
+    method: "DELETE",
+    token
+  });
+}
+
+export async function resetUserPassword(
+  token: string,
+  id: string,
+  input?: { password?: string }
+) {
+  return request<{ ok: true; id: string; password: string }>(`/users/${id}/reset-password`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(input ?? {})
+  });
+}
+
+export async function listTenants(token: string) {
+  return request<TenantRecord[]>("/tenants", { token });
+}
+
+export async function createTenant(
+  token: string,
+  input: {
+    id: string;
+    name: string;
+    timezone?: string;
+    adminEmail: string;
+    adminDisplayName: string;
+    adminPassword: string;
+  }
+) {
+  return request<{
+    tenant: TenantRecord;
+    admin: {
+      userId: string;
+      email: string;
+      displayName: string;
+      roleName: string;
+    };
+  }>("/tenants", {
+    method: "POST",
+    token,
+    body: JSON.stringify(input)
+  });
+}
+
+export async function updateTenant(
+  token: string,
+  id: string,
+  input: Partial<Pick<TenantRecord, "name" | "timezone">>
+) {
+  return request<TenantRecord>(`/tenants/${id}`, {
+    method: "PUT",
+    token,
+    body: JSON.stringify(input)
+  });
+}
+
+export async function deleteTenant(token: string, id: string) {
+  return request<{ deleted: boolean; id: string }>(`/tenants/${id}`, {
+    method: "DELETE",
     token
   });
 }
