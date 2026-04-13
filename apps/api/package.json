@@ -1,0 +1,28 @@
+{
+  "name": "@appaffilate/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "db:migrate": "tsx src/scripts/migrate.ts",
+    "db:seed": "tsx src/scripts/seed.ts",
+    "db:reset-demo": "tsx src/scripts/reset-demo.ts && tsx src/scripts/seed.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@appaffilate/domain": "0.1.0",
+    "@aws-sdk/client-s3": "^3.1028.0",
+    "@aws-sdk/lib-storage": "^3.1028.0",
+    "@aws-sdk/s3-request-presigner": "^3.1028.0",
+    "busboy": "^1.6.0",
+    "pg": "^8.20.0",
+    "redis": "^4.7.0"
+  },
+  "devDependencies": {
+    "@types/busboy": "^1.5.4",
+    "@types/node": "^25.6.0",
+    "@types/pg": "^8.20.0"
+  }
+}
