@@ -68,6 +68,52 @@ Tài khoản demo seed sẵn:
 
 ## 2) Vận hành auto-start (systemd)
 
+### 2.0 `Connection refused` tới cổng 3000 / 4000 — chưa có service hoặc app chưa chạy
+
+Nếu `systemctl status appaffilate` báo **Unit could not be found**, installer có thể chưa chạy xong bước 8. **Docker chỉ là DB/Redis/MinIO**; web + API phải do **`npm run dev:all`** (hoặc systemd) đưa lên.
+
+**Chạy tạm để kiểm tra** (thay `lichdt` bằng user có nvm + quyền `/opt/appaffilate`):
+
+```bash
+sudo -i -u lichdt
+cd /opt/appaffilate
+git pull
+export NVM_DIR="$HOME/.nvm" && source "$NVM_DIR/nvm.sh"
+npm install
+npm run dev:all
+```
+
+Giữ terminal này mở; từ máy khác (hoặc `curl` trên server) thử: `http://192.168.145.130:3000` (đổi đúng IP LAN của bạn).
+
+**Tạo systemd** (auto-start, chạy nền) — chạy **một lần** dưới `root`, sửa `lichdt` nếu cần:
+
+```bash
+APP_USER=lichdt
+APP_HOME="$(getent passwd "$APP_USER" | cut -d: -f6)"
+sudo tee /etc/systemd/system/appaffilate.service >/dev/null <<EOF
+[Unit]
+Description=AppAffilate (on-prem)
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+User=${APP_USER}
+WorkingDirectory=/opt/appaffilate
+EnvironmentFile=/opt/appaffilate/.env
+ExecStart=/bin/bash -c 'set -euo pipefail; export NVM_DIR="${APP_HOME}/.nvm"; source "\$NVM_DIR/nvm.sh"; cd /opt/appaffilate; exec npm run dev:all'
+Restart=always
+RestartSec=3
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now appaffilate
+sudo systemctl status appaffilate --no-pager
+```
+
 ### 2.1 Trạng thái service
 
 ```bash
@@ -110,9 +156,13 @@ Giải thích nhanh:
 ## 4) Mở firewall cho LAN (nếu bạn bật UFW)
 
 ```bash
+sudo ufw allow OpenSSH
 sudo ufw allow 3000/tcp
 sudo ufw allow 4000/tcp
+sudo ufw reload
 ```
+
+(Nếu bật UFW mà **chưa** `allow OpenSSH`, lần reboot sau bạn có thể **mất SSH** — luôn mở SSH trước khi `ufw enable`.)
 
 Không cần mở `5432/6379/9000/9001` ra LAN nếu bạn chỉ dùng qua app.
 
