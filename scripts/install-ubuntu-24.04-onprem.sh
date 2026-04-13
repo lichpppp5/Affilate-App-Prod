@@ -114,6 +114,7 @@ with_nvm "npm install"
 
 echo "Step 7/8: Start infra + migrate + seed demo"
 with_nvm "npm run infra:up"
+with_nvm "npm --workspace @appaffilate/api run db:migrate"
 with_nvm "npm run db:reset-demo"
 
 echo "Step 8/8: Create systemd service (auto-start)"

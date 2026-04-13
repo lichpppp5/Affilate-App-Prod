@@ -90,6 +90,16 @@ sudo ufw allow 4000/tcp
 
 Không cần mở `5432/6379/9000/9001` ra LAN nếu bạn chỉ dùng qua app.
 
+### 4.1 Lỗi `Connection terminated unexpectedly` khi `db:reset-demo`
+
+PostgreSQL trong container thường cần vài giây sau `docker compose up` mới nhận kết nối. Repo đã có bước **`db:wait`** (retry tới ~120s) trước `db:migrate` và `db:reset-demo`. Nếu vẫn lỗi:
+
+- Kiểm tra container: `docker compose -f infra/docker-compose.yml ps`
+- Xem log Postgres: `docker compose -f infra/docker-compose.yml logs postgres --tail 80`
+- Đảm bảo `.env` có `DATABASE_URL=postgres://appaffilate:appaffilate@localhost:5432/appaffilate` (đúng user/mật khẩu như `infra/docker-compose.yml`)
+
+Trên DB mới, chạy lần lượt: `npm run infra:up` → `npm --workspace @appaffilate/api run db:migrate` → `npm run db:reset-demo`.
+
 ## 5) Cập nhật phiên bản (pull code)
 
 ```bash

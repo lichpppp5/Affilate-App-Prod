@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "db:migrate": "tsx src/scripts/migrate.ts",
+    "db:wait": "tsx src/scripts/wait-for-postgres.ts",
+    "db:migrate": "tsx src/scripts/wait-for-postgres.ts && tsx src/scripts/migrate.ts",
     "db:seed": "tsx src/scripts/seed.ts",
-    "db:reset-demo": "tsx src/scripts/reset-demo.ts && tsx src/scripts/seed.ts",
+    "db:reset-demo": "tsx src/scripts/wait-for-postgres.ts && tsx src/scripts/reset-demo.ts && tsx src/scripts/seed.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
