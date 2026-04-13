@@ -28,8 +28,34 @@ Script sẽ:
 - Cài Node.js 20 (qua nvm) cho user hiện tại — script **luôn `source ~/.nvm/nvm.sh`**, không dùng `source ~/.bashrc` (vì `.bashrc` thường thoát ngay với shell không tương tác, khiến `nvm` không tồn tại).
 - Clone repo vào `/opt/appaffilate`
 - Tạo `.env` từ `.env.example` và điền URL theo LAN IP
-- Chạy `npm install`, `npm run infra:up`, `npm run db:reset-demo`
+- Chạy `npm install`, `npm run infra:up`, `db:migrate`, `db:reset-demo`
 - Tạo service `systemd` để **auto-start** (`appaffilate.service`)
+
+### 1.1 Quan trọng: đừng chạy `npm` khi đang là **root**
+
+Installer cài **Node 20 qua nvm** cho user Linux bạn dùng lúc gõ `sudo ./install.sh` (ví dụ `lichdt`). User **root** không có `npm` trong PATH → báo `Command 'npm' not found`.
+
+**Cách đúng** — đăng nhập shell với user triển khai rồi load nvm:
+
+```bash
+sudo -i -u lichdt
+cd /opt/appaffilate
+export NVM_DIR="$HOME/.nvm" && source "$NVM_DIR/nvm.sh"
+npm install
+npm run infra:up
+npm --workspace @appaffilate/api run db:migrate
+npm run db:reset-demo
+```
+
+(Thay `lichdt` bằng đúng username trên server.)
+
+**Hoặc** từ root, một lệnh (có sẵn trong repo):
+
+```bash
+chmod +x /opt/appaffilate/scripts/run-npm.sh
+DEPLOY_USER=lichdt /opt/appaffilate/scripts/run-npm.sh install
+DEPLOY_USER=lichdt /opt/appaffilate/scripts/run-npm.sh run infra:up
+```
 
 Sau khi xong:
 - Web: `http://<LAN-IP>:3000`
