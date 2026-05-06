@@ -49,7 +49,7 @@ Roadmap nay chia du an thanh cac phan co the giao song song giua product, fronte
 ## Phase 2 - Core product
 
 - Them auth va tenant isolation.
-- CRUD cho product, asset, project; **template** trong MVP hien la **chuoi template_id** tren project (chua bat buoc bang quan ly template rieng).
+- CRUD cho product, asset, project; **template** da co module rieng (`video_templates`) de quan ly theo kenh (aspect ratio, duration, render provider/config) va gan vao project qua `template_id`.
 - Enqueue render jobs va luu state trong DB.
 - Hien dashboard thong tin thuc.
 
@@ -61,7 +61,8 @@ Roadmap nay chia du an thanh cac phan co the giao song song giua product, fronte
 
 ### Bo sung co the (sau MVP)
 
-- Bang/API **video_templates** + UI chon mau; **brand_kits** neu can dong bo thuong hieu.
+- (Tuỳ chọn) FK constraint cho `video_projects.template_id` / `brand_kit_id` neu muon strict hon.
+- (Tuỳ chọn) “versioning” cho template/brand kit de thay doi ma khong anh huong project cu.
 
 ### Rui ro
 

@@ -87,12 +87,12 @@ Bảng dưới **ăn khớp với code đã có**, để phân biệt “đã sc
 
 | Hạng mục trong tài liệu | Thực tế repo | Gợi ý bổ sung |
 |-------------------------|--------------|----------------|
-| **CRUD template** (Phase 2) | `template_id` là **chuỗi** trên project, không có bảng/màn quản lý template | Thêm entity `video_templates` + API/UI hoặc điều chỉnh PRD: “template = mã cấu hình” |
-| **Brand kit** | Có field `brand_kit_id`, chưa CRUD brand kit | Bảng + API + UI hoặc bỏ khỏi scope MVP |
-| **Compliance checklist** (Phase 3) | Có disclosure trên publish + approval; **chưa** checklist nhiều mục / policy lưu DB | Thêm checklist theo kênh hoặc gắn template compliance |
-| **Adapter theo capability** (integration-audit) | Một luồng HTTP chung + mock; chưa class `ShopeeAdapter` / `TikTokAdapter` tách capability | Giữ BFF; hoặc refactor worker theo capability khi API ổn định |
-| **`product_mapping`, `tracking_params`, `channel_capabilities`** | Affiliate gắn **product** + **publish job**; chưa bảng mapping/params/capability | Thêm khi cần đa SKU–đa kênh hoặc attribution sâu |
-| **Đồng bộ trạng thái post từ nền tảng** | Webhook mô phỏng + cập nhật job trong luồng worker | Webhook/BFF thật + idempotency + retry theo spec từng nhà |
+| **CRUD template** (Phase 2) | **Đã có** bảng `video_templates` + API/UI quản lý (mẫu theo kênh, aspect ratio, duration, render provider/config). `video_projects.template_id` tham chiếu theo id template. | (Tuỳ chọn) ràng buộc FK ở DB nếu muốn strict hơn; thêm “versioning” template nếu cần thay đổi mà không ảnh hưởng project cũ. |
+| **Brand kit** | **Đã có** bảng `brand_kits` + API/UI CRUD; `video_projects.brand_kit_id` gắn vào project; template Veo có hỗ trợ placeholder brand (màu/font/logo). | (Tuỳ chọn) upload/chọn logo asset bằng picker thay vì nhập `logo_asset_id` thủ công. |
+| **Compliance checklist** (Phase 3) | **Đã có** bảng `compliance_checklist_items` + API/UI CRUD theo kênh; `publish_jobs.compliance_json` lưu kết quả tick. | (Tuỳ chọn) enforce checklist theo `channel_capabilities.disclosureRequired`/policy; thêm history ai tick/when. |
+| **`product_mapping`, `tracking_params`, `channel_capabilities`** | **Đã có** `product_channel_mappings`, `publish_jobs.tracking_params_json`, và `channel_capabilities` (capabilities + default tracking params) + API/UI quản lý. | (Tuỳ chọn) đồng bộ tự động mapping từ provider/BFF nếu nền tảng cung cấp catalog API. |
+| **Adapter theo capability** (integration-audit) | Publish/token refresh gọi **URL cấu hình** và kỳ vọng contract JSON; có mock để test end-to-end. | Với publish thật: triển khai **BFF** theo `provider-bff-contract.md` hoặc refactor worker thành adapter theo từng kênh khi API ổn định. |
+| **Đồng bộ trạng thái post từ nền tảng** | Có `publish_webhook_events` + endpoint webhook (mô phỏng) và `publish_attempts`. | Với go-live publish thật: cần webhook/BFF thật + idempotency + retry theo spec từng nhà. |
 
 ### Việc nên ưu tiên tiếp theo (gợi ý)
 

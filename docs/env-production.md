@@ -49,6 +49,38 @@ Hướng dẫn **chỗ cần điền** và **service nào đọc** biến. Đặ
 | `FACEBOOK_GRAPH_VERSION` | Version Graph | BFF | Mặc định `v20.0`. |
 | `FACEBOOK_PAGE_ID` | Page ID để đăng bài | BFF | BFF post `/{pageId}/feed`. |
 
+## Provider BFF (khuyến nghị để publish thật, không mock)
+
+Repo đã có workspace `apps/provider-bff` để bạn chạy như một service nội bộ, làm nhiệm vụ:
+- Chuẩn hoá **token refresh** và **publish** về đúng JSON mà API/worker mong đợi.
+- Khi chưa cấu hình upstream thật, BFF sẽ **trả lỗi** (fail-fast) thay vì mock.
+
+### Endpoints
+
+- Token (trỏ vào `*_OAUTH_TOKEN_URL`):
+  - `POST http://<BFF_HOST>:4100/tiktok/oauth/token`
+  - `POST http://<BFF_HOST>:4100/shopee/oauth/token`
+  - `POST http://<BFF_HOST>:4100/facebook/oauth/token`
+
+- Publish (trỏ vào `*_PUBLISH_URL`):
+  - `POST http://<BFF_HOST>:4100/tiktok/publish`
+  - `POST http://<BFF_HOST>:4100/shopee/publish`
+  - `POST http://<BFF_HOST>:4100/facebook/publish`
+
+### Biến môi trường cho BFF
+
+- `PROVIDER_BFF_PORT` (mặc định `4100`)
+
+Upstream (tuỳ theo bạn map API thật):
+- `TIKTOK_UPSTREAM_TOKEN_URL`, `TIKTOK_UPSTREAM_PUBLISH_URL`
+- `SHOPEE_UPSTREAM_TOKEN_URL`, `SHOPEE_UPSTREAM_PUBLISH_URL`
+- `FACEBOOK_UPSTREAM_TOKEN_URL`, `FACEBOOK_UPSTREAM_PUBLISH_URL`
+
+Facebook Graph mode (nếu **không** set `FACEBOOK_UPSTREAM_PUBLISH_URL`):
+- `FACEBOOK_GRAPH_BASE_URL` (mặc định `https://graph.facebook.com`)
+- `FACEBOOK_GRAPH_VERSION` (mặc định `v20.0`)
+- `FACEBOOK_PAGE_ID` (bắt buộc)
+
 ## TikTok / Shopee / Facebook “thật”: kỳ vọng kỹ thuật hiện tại
 
 Code không hard-code host TikTok/Shopee/Facebook; nó gọi **URL bạn cấu hình**.

@@ -12,6 +12,7 @@
     "dev:web": "npm --workspace @appaffilate/web run dev",
     "dev:api": "npm --workspace @appaffilate/api run dev",
     "dev:worker": "npm --workspace @appaffilate/worker run dev",
+    "dev:bff": "npm --workspace @appaffilate/provider-bff run dev",
     "dev:all": "concurrently -k -n api,worker,web \"npm run dev:api\" \"npm run dev:worker\" \"npm run dev:web\"",
     "start:all": "npm run infra:up && npm run dev:all",
     "db:reset-demo": "npm --workspace @appaffilate/api run db:reset-demo",
